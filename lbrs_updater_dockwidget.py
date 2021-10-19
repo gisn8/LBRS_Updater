@@ -26,6 +26,7 @@ import os
 
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
+from qgis.core import *
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'lbrs_updater_dockwidget_base.ui'))
@@ -44,6 +45,80 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # http://doc.qt.io/qt-5/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
+        self.load_data()
+        self.reset_form()
+        self.set_connections()
+
+    def load_data(self):
+        self.cbo_SearchAddress_st_name.addItem('')
+        self.cbo_SearchAddress_comm.addItem('')
+
+        address_layer = self.get_layer('addresses')
+        roads_layer = self.get_layer('roads')
+
+        self.cbo_SearchAddress_st_prefix.addItems(self.get_feature_values_list(address_layer, field_name='st_prefix'))
+        self.cbo_SearchAddress_st_name.addItems(self.get_feature_values_list(address_layer, field_name='st_name'))
+        self.cbo_SearchAddress_st_type.addItems(self.get_feature_values_list(address_layer, field_name='st_type'))
+        self.cbo_SearchAddress_st_suffix.addItems(self.get_feature_values_list(address_layer, field_name='st_suffix'))
+        self.cbo_SearchAddress_comm.addItems(self.get_feature_values_list(address_layer, field_name='comm',
+                                                                          filter_='comm not like \'% TWP%\''))
+
+        self.cbo_SearchAddress_lsn.addItem('')
+        self.cbo_SearchAddress_lsn.addItems(self.get_feature_values_list(address_layer, field_name='lsn'))
+
+        self.list_SearchAddress_roads_lsn.addItems(self.get_feature_values_list(roads_layer, field_name='lsn'))
+
+    def set_connections(self):
+        self.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+        self.btnReset.clicked.connect(lambda: self.reset_form())
+
+    def reset_form(self):
+        # Menu
+        # Address Search
+        self.reset_address_search_form()
+
+        # Return to Menu
+        self.stackedWidget.setCurrentIndex(0)
+
+    def reset_address_search_form(self):
+        self.ln_SearchAddress_housenum.clear()
+        self.ln_SearchAddress_unitnum.clear()
+
+        self.cbo_SearchAddress_st_prefix.setCurrentIndex(0)
+        self.cbo_SearchAddress_st_name.setCurrentIndex(0)
+        self.cbo_SearchAddress_st_type.setCurrentIndex(0)
+        self.cbo_SearchAddress_st_suffix.setCurrentIndex(0)
+        self.cbo_SearchAddress_comm.setCurrentIndex(0)
+
+    def navigate(self):
+        self.stackedWidget.setCurrentIndex(1)
+
+    def get_layer(self, layer_name):
+        try:
+            layer = QgsProject.instance().mapLayersByName(layer_name)[0]
+            return layer
+        except:
+            try:
+                layer = QgsProject.instance().mapGroupLayersByName(layer_name)[0]
+                return layer
+            except:
+                pass
+
+    def get_feature_values_list(self, layer, field_name, filter_=None):
+        if filter_ is None:
+            filter_ = f'{field_name} is not NULL'
+        else:
+            pass
+
+        features = layer.getFeatures(filter_)
+        list_ = []
+        for feature in features:
+            list_.append(feature[field_name])
+        distinct_list = []
+        for item in list(set(list_)):
+            distinct_list.append(item)
+        distinct_list.sort()
+        return distinct_list
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
