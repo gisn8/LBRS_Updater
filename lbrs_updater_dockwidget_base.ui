@@ -166,15 +166,15 @@
         <item row="2" column="0">
          <layout class="QHBoxLayout" name="horizontalLayout_5">
           <item>
-           <widget class="QLabel" name="label_17">
+           <widget class="QLabel" name="lbl_SearchAddress_Results">
             <property name="font">
              <font>
-              <weight>75</weight>
-              <bold>true</bold>
+              <weight>50</weight>
+              <bold>false</bold>
              </font>
             </property>
             <property name="text">
-             <string>Results</string>
+             <string>Results: 0</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignBottom|Qt::AlignLeading|Qt::AlignLeft</set>
@@ -234,7 +234,7 @@
                 <item>
                  <widget class="QLabel" name="label_16">
                   <property name="text">
-                   <string>City</string>
+                   <string>Jurisdiction</string>
                   </property>
                   <property name="alignment">
                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>

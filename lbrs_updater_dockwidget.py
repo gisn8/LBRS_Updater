@@ -60,8 +60,7 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.cbo_SearchAddress_st_name.addItems(self.get_feature_values_list(address_layer, field_name='st_name'))
         self.cbo_SearchAddress_st_type.addItems(self.get_feature_values_list(address_layer, field_name='st_type'))
         self.cbo_SearchAddress_st_suffix.addItems(self.get_feature_values_list(address_layer, field_name='st_suffix'))
-        self.cbo_SearchAddress_comm.addItems(self.get_feature_values_list(address_layer, field_name='comm',
-                                                                          filter_='comm not like \'% TWP%\''))
+        self.cbo_SearchAddress_comm.addItems(self.get_feature_values_list(address_layer, field_name='comm'))
 
         self.cbo_SearchAddress_lsn.addItem('')
         self.cbo_SearchAddress_lsn.addItems(self.get_feature_values_list(address_layer, field_name='lsn'))
@@ -76,9 +75,11 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
 
         # Page 1 - Search for Address
-        #
+        # Tab change
+        self.tab_SearchAddress.currentChanged.connect(lambda: self.list_SearchAddress_Results.clear())
+        self.tab_SearchAddress.currentChanged.connect(lambda: self.lbl_SearchAddress_Results.setText('Results: 0'))
         # Find
-        self.btn_SearchAddress_Find.clicked.connect(lambda: self.assemble_address_query())
+        self.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
         # Clear
         self.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
         # Zoom
@@ -96,6 +97,8 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.stackedWidget.setCurrentIndex(0)
 
     def reset_address_search_form(self):
+        self.lblError.hide()
+
         self.ln_SearchAddress_housenum.clear()
         self.ln_SearchAddress_unitnum.clear()
 
@@ -109,43 +112,82 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         self.list_SearchAddress_Results.clear()
 
+        self.lbl_SearchAddress_Results.setText('Results: 0')
+
     def navigate(self):
         self.stackedWidget.setCurrentIndex(1)
 
-    def assemble_address_query(self):
-        # get address tab and then determine search parameters based on the active tab
+    def execute_address_query(self):
+        # get active address tab, build search parameters based on the active tab, and populate results
         self.lblError.hide()
-
+        self.list_SearchAddress_Results.clear()
+        query = ''
         address_tab_index = self.tab_SearchAddress.currentIndex()
 
         # Component Search
         if address_tab_index == 0:
-            query = f'lsn LIKE \'%{self.ln_SearchAddress_housenum.text()}%{self.ln_SearchAddress_unitnum.text()}' \
-                    f'%{self.cbo_SearchAddress_st_prefix.currentText()}%{self.cbo_SearchAddress_st_name.currentText()}' \
-                    f'%{self.cbo_SearchAddress_st_type.currentText()}%{self.cbo_SearchAddress_st_suffix.currentText()}\''
+            query = '1=1'
+
+            if len(self.ln_SearchAddress_housenum.text()) > 0:
+                query = f"{query} AND to_string(housenum) = '{self.ln_SearchAddress_housenum.text()}'"
+
+            if len(self.ln_SearchAddress_unitnum.text()) > 0:
+                query = f"{query} AND unitnum = '{self.ln_SearchAddress_unitnum.text()}'"
+
+            if len(self.cbo_SearchAddress_st_prefix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_prefix = '{self.cbo_SearchAddress_st_prefix.currentText()}' OR " \
+                        f"altprefix = '{self.cbo_SearchAddress_st_prefix.currentText()}')"
+
+            if len(self.cbo_SearchAddress_st_name.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_name = '{self.cbo_SearchAddress_st_name.currentText()}' OR " \
+                        f"altname = '{self.cbo_SearchAddress_st_name.currentText()}')"
+
+            if len(self.cbo_SearchAddress_st_type.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_type = '{self.cbo_SearchAddress_st_type.currentText()}' OR " \
+                        f"alttype = '{self.cbo_SearchAddress_st_type.currentText()}')"
+
+            if len(self.cbo_SearchAddress_st_suffix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_suffix = '{self.cbo_SearchAddress_st_suffix.currentText()}' OR " \
+                        f"altsuffix = '{self.cbo_SearchAddress_st_suffix.currentText()}')"
+
+            if len(self.cbo_SearchAddress_comm.currentText()) > 0:
+                query = f"{query} AND comm = '{self.cbo_SearchAddress_comm.currentText()}'"
 
         # Free-form Search
         if address_tab_index == 1:
-            query = f'lsn LIKE \'%{self.cbo_SearchAddress_lsn.currentText()}%\''
+            query = f'%{self.cbo_SearchAddress_lsn.currentText()}%'
+            if len(query) < 7:
+                query = ''
+            else:
+                query = f"'lsn LIKE '{query}' OR alsn LIKE '{query}'"
 
         # Street-Level Search
         if address_tab_index == 2:
-            if self.list_SearchAddress_roads_lsn.currentItem() is None:
-                query = None
-            else:
-                query = f'lsn LIKE \'% {self.list_SearchAddress_roads_lsn.currentItem().text()}\''
+            if self.list_SearchAddress_roads_lsn.currentItem() is not None:
+                query = f'% {self.list_SearchAddress_roads_lsn.currentItem().text()}'
+                if len(query) < 7:
+                    query = ''
+                else:
+                    query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
 
-        if query is not None:
-            if len(query) < 18:
-                query = None
+        if query != '':
+            # print(query)
+            query_results = self.get_feature_values_list(self.get_layer('addresses'), field_name='lsn', filter_=f'{query}')
+            if len(query_results) == 0:
+                self.lbl_SearchAddress_Results.setText('Results: 0')
+                self.list_SearchAddress_Results.addItem('No addresses found!')
             else:
-                print(f'{len(query)}: {query}')
-
-        if query is None:
-            print(query)
+                # populate result table
+                self.list_SearchAddress_Results.addItems(query_results)
+                self.lbl_SearchAddress_Results.setText(f'Results: {len(query_results)}')
+        else:
+            self.lbl_SearchAddress_Results.setText('Results: 0')
             self.lblError.setText('Error: No features found')
             self.lblError.show()
-
 
     def get_layer(self, layer_name):
         try:
@@ -158,7 +200,7 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             except:
                 pass
 
-    def get_feature_values_list(self, layer, field_name, filter_=None):
+    def get_feature_values_list(self, layer, field_name, filter_=None, distinct=1):
         if filter_ is None:
             filter_ = f'{field_name} is not NULL'
         else:
@@ -168,11 +210,48 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         list_ = []
         for feature in features:
             list_.append(feature[field_name])
+
+        if distinct == 1:
+            distinct_list = self.make_list_distinct(list_)
+            return distinct_list
+        else:
+            return list_
+
+    def make_list_distinct(self, list_):
         distinct_list = []
         for item in list(set(list_)):
             distinct_list.append(item)
         distinct_list.sort()
         return distinct_list
+
+    def zoom_to_feature(self, layer_name):
+        # Get selected item from result table, query for duplicates. If duplicates found, pop up box with cboBox to
+        # select from to continue, then zoom to features.
+
+        if self.list_SearchAddress_Results.currentItem() is not None:
+            query = f"lsn LIKE '{self.list_SearchAddress_Results.currentItem().text()}' OR " \
+                    f"alsn LIKE '{self.list_SearchAddress_Results.currentItem().text()}'"
+
+            query_results = self.get_feature_values_list(self.get_layer(layer_name), field_name='lsn',
+                                                         filter_=f'{query}', distinct=0)
+
+            if len(query_results) > 1:
+                print('Multiple matches found! Please select jurisdiction.')
+            else:
+                """
+                canvas = self.iface.mapCanvas()
+                layer = self.get_layer(layername)
+                self.iface.setActiveLayer(layer)
+                layer.removeSelection()
+                features = layer.getFeatures(f"{field} = '{value}'")
+                ids = [i.id() for i in features]
+                layer.selectByIds(ids)
+                canvas.zoomToSelected(layer)
+                if scale != None:
+                    canvas.zoomScale(scale)
+                """
+                pass
+
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
