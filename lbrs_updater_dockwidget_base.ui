@@ -211,9 +211,9 @@
          </layout>
         </item>
         <item row="1" column="0">
-         <widget class="QTabWidget" name="tabWidget">
+         <widget class="QTabWidget" name="tab_SearchAddress">
           <property name="currentIndex">
-           <number>2</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tabCompSearch">
            <attribute name="title">
@@ -500,48 +500,11 @@
               <item>
                <widget class="QListWidget" name="list_SearchAddress_roads_lsn"/>
               </item>
-              <item>
-               <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="0,1,0">
-                <item>
-                 <widget class="QLabel" name="label_18">
-                  <property name="text">
-                   <string>Look for: </string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QComboBox" name="cbo_SearchAddress_roads_lsn">
-                  <property name="editable">
-                   <bool>true</bool>
-                  </property>
-                  <property name="frame">
-                   <bool>true</bool>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <spacer name="horizontalSpacer_6">
-                  <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
-                  </property>
-                  <property name="sizeHint" stdset="0">
-                   <size>
-                    <width>40</width>
-                    <height>20</height>
-                   </size>
-                  </property>
-                 </spacer>
-                </item>
-               </layout>
-              </item>
              </layout>
             </item>
            </layout>
           </widget>
          </widget>
-        </item>
-        <item row="3" column="0">
-         <widget class="QListView" name="list_SearchAddress_Results"/>
         </item>
         <item row="0" column="0">
          <widget class="QLabel" name="label_2">
@@ -555,6 +518,9 @@
            <string>Search for Address</string>
           </property>
          </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QListWidget" name="list_SearchAddress_Results"/>
         </item>
         <item row="4" column="0">
          <layout class="QHBoxLayout" name="horizontalLayout_7" stretch="0,0,0,1,0">
@@ -735,7 +701,7 @@
          <string notr="true">color: rgb(200, 0, 0);</string>
         </property>
         <property name="text">
-         <string>Error: Address not found.</string>
+         <string>Error: No features found.</string>
         </property>
        </widget>
       </item>
@@ -765,22 +731,5 @@
   </widget>
  </widget>
  <resources/>
- <connections>
-  <connection>
-   <sender>cbo_SearchAddress_lsn</sender>
-   <signal>currentTextChanged(QString)</signal>
-   <receiver>list_SearchAddress_Results</receiver>
-   <slot>update()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>326</x>
-     <y>119</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>341</x>
-     <y>332</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
 </ui>

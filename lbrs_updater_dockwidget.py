@@ -69,13 +69,28 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.list_SearchAddress_roads_lsn.addItems(self.get_feature_values_list(roads_layer, field_name='lsn'))
 
     def set_connections(self):
-        self.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+        # All
         self.btnReset.clicked.connect(lambda: self.reset_form())
+
+        # Page 0 - Menu
+        self.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+
+        # Page 1 - Search for Address
+        #
+        # Find
+        self.btn_SearchAddress_Find.clicked.connect(lambda: self.assemble_address_query())
+        # Clear
+        self.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
+        # Zoom
+        # Continue
 
     def reset_form(self):
         # Menu
         # Address Search
         self.reset_address_search_form()
+
+        # Set default and hide error warning
+        self.lblError.hide()
 
         # Return to Menu
         self.stackedWidget.setCurrentIndex(0)
@@ -90,8 +105,47 @@ class LBRS_UpdaterDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.cbo_SearchAddress_st_suffix.setCurrentIndex(0)
         self.cbo_SearchAddress_comm.setCurrentIndex(0)
 
+        self.cbo_SearchAddress_lsn.setCurrentIndex(0)
+
+        self.list_SearchAddress_Results.clear()
+
     def navigate(self):
         self.stackedWidget.setCurrentIndex(1)
+
+    def assemble_address_query(self):
+        # get address tab and then determine search parameters based on the active tab
+        self.lblError.hide()
+
+        address_tab_index = self.tab_SearchAddress.currentIndex()
+
+        # Component Search
+        if address_tab_index == 0:
+            query = f'lsn LIKE \'%{self.ln_SearchAddress_housenum.text()}%{self.ln_SearchAddress_unitnum.text()}' \
+                    f'%{self.cbo_SearchAddress_st_prefix.currentText()}%{self.cbo_SearchAddress_st_name.currentText()}' \
+                    f'%{self.cbo_SearchAddress_st_type.currentText()}%{self.cbo_SearchAddress_st_suffix.currentText()}\''
+
+        # Free-form Search
+        if address_tab_index == 1:
+            query = f'lsn LIKE \'%{self.cbo_SearchAddress_lsn.currentText()}%\''
+
+        # Street-Level Search
+        if address_tab_index == 2:
+            if self.list_SearchAddress_roads_lsn.currentItem() is None:
+                query = None
+            else:
+                query = f'lsn LIKE \'% {self.list_SearchAddress_roads_lsn.currentItem().text()}\''
+
+        if query is not None:
+            if len(query) < 18:
+                query = None
+            else:
+                print(f'{len(query)}: {query}')
+
+        if query is None:
+            print(query)
+            self.lblError.setText('Error: No features found')
+            self.lblError.show()
+
 
     def get_layer(self, layer_name):
         try:
