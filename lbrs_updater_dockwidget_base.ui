@@ -519,13 +519,10 @@
           </property>
          </widget>
         </item>
-        <item row="3" column="0">
-         <widget class="QListWidget" name="list_SearchAddress_Results"/>
-        </item>
         <item row="4" column="0">
          <layout class="QHBoxLayout" name="horizontalLayout_7" stretch="0,0,0,1,0">
           <item>
-           <widget class="QPushButton" name="btnZoomToAddress">
+           <widget class="QPushButton" name="btn_SearchAddress_Zoom">
             <property name="text">
              <string>Zoom to Selected</string>
             </property>
@@ -597,6 +594,22 @@
            </widget>
           </item>
          </layout>
+        </item>
+        <item row="3" column="0">
+         <widget class="QTableWidget" name="tbl_SearchAddress_Results">
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SingleSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <attribute name="horizontalHeaderCascadingSectionResizes">
+           <bool>true</bool>
+          </attribute>
+          <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
+           <bool>true</bool>
+          </attribute>
+         </widget>
         </item>
        </layout>
       </widget>

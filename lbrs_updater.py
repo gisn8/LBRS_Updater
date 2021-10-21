@@ -21,10 +21,13 @@
  *                                                                         *
  ***************************************************************************/
 """
+from PyQt5.QtWidgets import QTableWidgetItem
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
+from qgis._core import QgsProject
+
 from .resources import *
 
 # Import the code for the DockWidget
@@ -231,3 +234,269 @@ class LBRS_Updater:
             # TODO: fix to allow choice of dock location
             self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
             self.dockwidget.show()
+
+        self.load_data()
+        self.reset_form()
+        self.set_connections()
+
+    def load_data(self):
+        self.dockwidget.cbo_SearchAddress_st_name.addItem('')
+        self.dockwidget.cbo_SearchAddress_comm.addItem('')
+
+        address_layer = self.get_layer('addresses')
+        roads_layer = self.get_layer('roads')
+
+        self.dockwidget.cbo_SearchAddress_st_prefix.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_prefix'))
+        self.dockwidget.cbo_SearchAddress_st_name.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_name'))
+        self.dockwidget.cbo_SearchAddress_st_type.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_type'))
+        self.dockwidget.cbo_SearchAddress_st_suffix.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_suffix'))
+        self.dockwidget.cbo_SearchAddress_comm.addItems(
+            self.get_feature_values_list(address_layer, field_name='comm'))
+
+        self.dockwidget.cbo_SearchAddress_lsn.addItem('')
+        self.dockwidget.cbo_SearchAddress_lsn.addItems(
+            self.get_feature_values_list(address_layer, field_name='lsn'))
+
+        self.dockwidget.list_SearchAddress_roads_lsn.addItems(
+            self.get_feature_values_list(roads_layer, field_name='lsn'))
+
+    def set_connections(self):
+        # All
+        self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
+
+        # Page 0 - Menu
+        self.dockwidget.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+
+        # Page 1 - Search for Address
+        # Tab change
+        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.dockwidget.tbl_SearchAddress_Results.clear())
+        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0'))
+        # Find
+        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
+        # Clear
+        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
+        # Zoom
+        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
+            lambda: self.zoom_to_feature(self.get_layer('addresses')))
+        # Continue
+
+    def reset_form(self):
+        # Menu
+        # Address Search
+        self.reset_address_search_form()
+
+        # Set default and hide error warning
+        self.dockwidget.lblError.hide()
+
+        # Return to Menu
+        self.dockwidget.stackedWidget.setCurrentIndex(0)
+
+    def reset_address_search_form(self):
+        self.dockwidget.lblError.hide()
+
+        self.dockwidget.ln_SearchAddress_housenum.clear()
+        self.dockwidget.ln_SearchAddress_unitnum.clear()
+
+        self.dockwidget.cbo_SearchAddress_st_prefix.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_name.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_type.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_suffix.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_comm.setCurrentIndex(0)
+
+        self.dockwidget.cbo_SearchAddress_lsn.setCurrentIndex(0)
+
+        self.dockwidget.tbl_SearchAddress_Results.clear()
+
+        self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
+
+    def navigate(self):
+        self.dockwidget.stackedWidget.setCurrentIndex(1)
+
+    def execute_address_query(self):
+        # get active address tab, build search parameters based on the active tab, and populate results
+        self.dockwidget.lblError.hide()
+        query = ''
+        address_tab_index = self.dockwidget.tab_SearchAddress.currentIndex()
+
+        # Component Search
+        if address_tab_index == 0:
+            query = '1=1'
+
+            if len(self.dockwidget.ln_SearchAddress_housenum.text()) > 0:
+                query = f"{query} AND to_string(housenum) = '{self.dockwidget.ln_SearchAddress_housenum.text()}'"
+
+            if len(self.dockwidget.ln_SearchAddress_unitnum.text()) > 0:
+                query = f"{query} AND unitnum = '{self.dockwidget.ln_SearchAddress_unitnum.text()}'"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_prefix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_prefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}' OR " \
+                        f"altprefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_name.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_name = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}' OR " \
+                        f"altname = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_type.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_type = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}' OR " \
+                        f"alttype = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_suffix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_suffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}' OR " \
+                        f"altsuffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_comm.currentText()) > 0:
+                query = f"{query} AND comm = '{self.dockwidget.cbo_SearchAddress_comm.currentText()}'"
+
+        # Free-form Search
+        if address_tab_index == 1:
+            query = f'%{self.dockwidget.cbo_SearchAddress_lsn.currentText()}%'
+            if len(query) < 7:
+                query = ''
+            else:
+                query = f"'lsn LIKE '{query}' OR alsn LIKE '{query}'"
+
+        # Street-Level Search
+        if address_tab_index == 2:
+            if self.dockwidget.list_SearchAddress_roads_lsn.currentItem() is not None:
+                query = f'% {self.dockwidget.list_SearchAddress_roads_lsn.currentItem().text()}'
+                if len(query) < 7:
+                    query = ''
+                else:
+                    query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
+
+        if query != '':
+            # print(query)
+
+            self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
+                                    filter_=f'{query}', show_fields_list=['gid', 'lsn', 'comm', 'geom'])
+        else:
+            self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
+            self.dockwidget.lblError.setText('Error: No features found')
+            self.dockwidget.lblError.show()
+
+    def get_layer(self, layer_name):
+        try:
+            layer = QgsProject.instance().mapLayersByName(layer_name)[0]
+            return layer
+        except:
+            try:
+                layer = QgsProject.instance().mapGroupLayersByName(layer_name)[0]
+                return layer
+            except:
+                pass
+
+    def get_feature_values_list(self, layer, field_name, filter_=None, distinct=1):
+        if filter_ is None:
+            filter_ = f'{field_name} is not NULL'
+        else:
+            pass
+
+        features = layer.getFeatures(filter_)
+        list_ = []
+        for feature in features:
+            list_.append(feature[field_name])
+
+        if distinct == 1:
+            distinct_list = self.make_list_distinct(list_)
+            return distinct_list
+        else:
+            return list_
+
+    def make_list_distinct(self, list_):
+        distinct_list = []
+        for item in list(set(list_)):
+            distinct_list.append(item)
+        distinct_list.sort()
+        return distinct_list
+
+    def pop_tbl(self, layer, table, filter_=None, show_fields_list=[]):
+        # layer = self.get_layer(layer_name)
+        table.clear()
+        table.setColumnCount(0)
+        table.setRowCount(0)
+        field_names = []
+
+        for field in layer.fields():
+            # print(field.name())
+            # field_names.append(u'%s' % field.name())
+            field_names.append(f"{field.name()}")
+
+        if filter_ is None:
+            filter_ = 'lsn is not null'
+        features = layer.getFeatures(filter_)
+
+        table.setColumnCount(layer.fields().count())
+
+        row = 0
+        for feature in features:
+            table.insertRow(row)
+            for col in range(layer.fields().count()):
+                table.setItem(row, col, QTableWidgetItem(str(feature[col])))
+                # print(r"row: %s, col: %s, %s" % (row, col, feature[col]))
+            row += 1
+        table.setHorizontalHeaderLabels(field_names)
+        self.dockwidget.lbl_SearchAddress_Results.setText(f'Results: {row}')
+        if len(show_fields_list) > 0:
+            for field_name in field_names:
+                if field_name not in show_fields_list:
+                    table.setColumnHidden(layer.fields().indexFromName(field_name), True)
+
+        # table.setColumnHidden(layer.fields().indexFromName('fid'), True)
+        # table.setColumnHidden(layer.fields().indexFromName('uuid'), True)
+        # table.setHorizontalHeader.setSectionResizeMode(ResizeToContents) # Doesn't work
+        # table.setHorizontalHeader.sectionSizeFromContents() # Doesn't work either
+
+    def get_selected_row_cell(self, table, field_name):
+        row = table.currentItem().row()
+        if row is None:
+            pass
+        else:
+            row = table.currentItem().row()
+            # print(row)
+            # col = table.currentItem().column()
+
+            # loop through headers and find column number for given column name
+            header_count = table.columnCount()
+            for x in range(0, header_count, 1):
+                header_name = table.horizontalHeaderItem(x).text()
+                if field_name == header_name:
+                    cell = table.item(row, x).text()  # get cell at row, col
+                    # print(cell)ll
+                    return cell
+
+    def zoom_to_feature(self, layer):
+        # Get selected item from result table, query for duplicates. If duplicates found, pop up box with cboBox to
+        # select from to continue, then zoom to features.
+
+        query = f"gid = {self.get_selected_row_cell(self.dockwidget.tbl_SearchAddress_Results, 'gid')}"
+        print(query)
+        canvas = self.iface.mapCanvas()
+
+        # Not sure this is necessary
+        # self.iface.setActiveLayer(layer)
+
+        # Hold any selected features to give back after the function
+        held_ids = [f.id() for f in layer.selectedFeatures()]
+        layer.removeSelection()
+
+        features = layer.getFeatures(query)
+        ids = [i.id() for i in features]
+        print(len(ids))
+        layer.selectByIds(ids)
+        canvas.zoomToSelected(layer)
+
+        # clear zooming selection and re-select original selected features
+        layer.removeSelection()
+        layer.selectByIds(held_ids)
+
+        # Will also shake the canvas into not showing the zoomed feature as selected if it wasn't to begin with.
+        # if scale != None:
+        canvas.zoomScale(600)
