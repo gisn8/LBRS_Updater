@@ -235,11 +235,31 @@ class LBRS_Updater:
             self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
             self.dockwidget.show()
 
-        self.load_data()
-        self.reset_form()
         self.set_connections()
+        self.load_initial_data()
+        self.reset_form()
 
-    def load_data(self):
+    def set_connections(self):
+        # All
+        self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
+
+        # Page 0 - Menu
+        self.dockwidget.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+
+        # Page 1 - Search for Address
+        # Tab change
+        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
+
+        # Find
+        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
+        # Clear
+        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
+        # Zoom
+        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
+            lambda: self.zoom_to_feature(self.get_layer('addresses')))
+        # Continue
+
+    def load_initial_data(self):
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
         self.dockwidget.cbo_SearchAddress_comm.addItem('')
 
@@ -264,39 +284,19 @@ class LBRS_Updater:
         self.dockwidget.list_SearchAddress_roads_lsn.addItems(
             self.get_feature_values_list(roads_layer, field_name='lsn'))
 
-    def set_connections(self):
-        # All
-        self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
-
-        # Page 0 - Menu
-        self.dockwidget.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
-
-        # Page 1 - Search for Address
-        # Tab change
-        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.dockwidget.tbl_SearchAddress_Results.clear())
-        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0'))
-        # Find
-        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
-        # Clear
-        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
-        # Zoom
-        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
-            lambda: self.zoom_to_feature(self.get_layer('addresses')))
-        # Continue
-
     def reset_form(self):
         # Menu
         # Address Search
         self.reset_address_search_form()
 
         # Set default and hide error warning
-        self.dockwidget.lblError.hide()
+        self.dockwidget.lblError.setText('')
 
         # Return to Menu
         self.dockwidget.stackedWidget.setCurrentIndex(0)
 
     def reset_address_search_form(self):
-        self.dockwidget.lblError.hide()
+        self.dockwidget.lblError.setText('')
 
         self.dockwidget.ln_SearchAddress_housenum.clear()
         self.dockwidget.ln_SearchAddress_unitnum.clear()
@@ -308,17 +308,22 @@ class LBRS_Updater:
         self.dockwidget.cbo_SearchAddress_comm.setCurrentIndex(0)
 
         self.dockwidget.cbo_SearchAddress_lsn.setCurrentIndex(0)
+        
+        self.reset_result_displays()
 
+    def reset_result_displays(self): 
         self.dockwidget.tbl_SearchAddress_Results.clear()
-
+        self.dockwidget.tbl_SearchAddress_Results.setColumnCount(0)
+        self.dockwidget.tbl_SearchAddress_Results.setRowCount(0)
         self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
-
+        self.dockwidget.lblError.setText('')
+    
     def navigate(self):
         self.dockwidget.stackedWidget.setCurrentIndex(1)
 
     def execute_address_query(self):
         # get active address tab, build search parameters based on the active tab, and populate results
-        self.dockwidget.lblError.hide()
+        self.dockwidget.lblError.setText('')
         query = ''
         address_tab_index = self.dockwidget.tab_SearchAddress.currentIndex()
 
@@ -355,32 +360,33 @@ class LBRS_Updater:
             if len(self.dockwidget.cbo_SearchAddress_comm.currentText()) > 0:
                 query = f"{query} AND comm = '{self.dockwidget.cbo_SearchAddress_comm.currentText()}'"
 
+            if query == '1=1':
+                query = ''
+
         # Free-form Search
         if address_tab_index == 1:
-            query = f'%{self.dockwidget.cbo_SearchAddress_lsn.currentText()}%'
-            if len(query) < 7:
+            query = f"%{self.dockwidget.cbo_SearchAddress_lsn.currentText()}%"
+            if query == '%%':
                 query = ''
             else:
-                query = f"'lsn LIKE '{query}' OR alsn LIKE '{query}'"
+                query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
 
         # Street-Level Search
         if address_tab_index == 2:
             if self.dockwidget.list_SearchAddress_roads_lsn.currentItem() is not None:
-                query = f'% {self.dockwidget.list_SearchAddress_roads_lsn.currentItem().text()}'
-                if len(query) < 7:
+                query = f"% {self.dockwidget.list_SearchAddress_roads_lsn.currentItem().text()}"
+                if query == '% ':
                     query = ''
                 else:
                     query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
 
         if query != '':
-            # print(query)
-
+            print(query)
             self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
-                                    filter_=f'{query}', show_fields_list=['gid', 'lsn', 'comm', 'geom'])
+                                    filter_=f'{query}', show_fields_list=['lsn', 'comm'])
         else:
             self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
-            self.dockwidget.lblError.setText('Error: No features found')
-            self.dockwidget.lblError.show()
+            self.dockwidget.lblError.setText('Error: Please refine search')
 
     def get_layer(self, layer_name):
         try:
@@ -419,15 +425,7 @@ class LBRS_Updater:
 
     def pop_tbl(self, layer, table, filter_=None, show_fields_list=[]):
         # layer = self.get_layer(layer_name)
-        table.clear()
-        table.setColumnCount(0)
-        table.setRowCount(0)
-        field_names = []
-
-        for field in layer.fields():
-            # print(field.name())
-            # field_names.append(u'%s' % field.name())
-            field_names.append(f"{field.name()}")
+        self.reset_result_displays()
 
         if filter_ is None:
             filter_ = 'lsn is not null'
@@ -442,15 +440,26 @@ class LBRS_Updater:
                 table.setItem(row, col, QTableWidgetItem(str(feature[col])))
                 # print(r"row: %s, col: %s, %s" % (row, col, feature[col]))
             row += 1
-        table.setHorizontalHeaderLabels(field_names)
-        self.dockwidget.lbl_SearchAddress_Results.setText(f'Results: {row}')
-        if len(show_fields_list) > 0:
-            for field_name in field_names:
-                if field_name not in show_fields_list:
-                    table.setColumnHidden(layer.fields().indexFromName(field_name), True)
 
-        # table.setColumnHidden(layer.fields().indexFromName('fid'), True)
-        # table.setColumnHidden(layer.fields().indexFromName('uuid'), True)
+        # Probably will be argued in later as the rest of this already is.
+        self.dockwidget.lbl_SearchAddress_Results.setText(f'Results: {row}')
+        # That or just sneak it in because no one is looking anyway and it's demand is negligible
+
+        if row == 0:
+            self.reset_result_displays()
+        else:
+            field_names = []
+            for field in layer.fields():
+                # print(field.name())
+                # field_names.append(u'%s' % field.name())
+                field_names.append(f"{field.name()}")
+            table.setHorizontalHeaderLabels(field_names)
+
+            if len(show_fields_list) > 0:
+                for field_name in field_names:
+                    if field_name not in show_fields_list:
+                        table.setColumnHidden(layer.fields().indexFromName(field_name), True)
+
         # table.setHorizontalHeader.setSectionResizeMode(ResizeToContents) # Doesn't work
         # table.setHorizontalHeader.sectionSizeFromContents() # Doesn't work either
 
@@ -477,11 +486,8 @@ class LBRS_Updater:
         # select from to continue, then zoom to features.
 
         query = f"gid = {self.get_selected_row_cell(self.dockwidget.tbl_SearchAddress_Results, 'gid')}"
-        print(query)
+        # print(query)
         canvas = self.iface.mapCanvas()
-
-        # Not sure this is necessary
-        # self.iface.setActiveLayer(layer)
 
         # Hold any selected features to give back after the function
         held_ids = [f.id() for f in layer.selectedFeatures()]
