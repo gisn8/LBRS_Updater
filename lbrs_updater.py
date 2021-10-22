@@ -231,7 +231,7 @@ class LBRS_Updater:
         self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
 
         # Page 0 - Menu
-        self.dockwidget.btnContinueFromMenu.clicked.connect(lambda: self.navigate())
+        self.dockwidget.btn_Menu_Continue.clicked.connect(lambda: self.continue_from_menu())
 
         # Page 1 - Search for Address
         # Tab change
@@ -245,6 +245,8 @@ class LBRS_Updater:
         self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
             lambda: self.zoom_to_feature(self.get_layer('addresses')))
         # Continue
+        self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
+
 
     def load_initial_data(self):
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
@@ -287,7 +289,6 @@ class LBRS_Updater:
 
         self.dockwidget.ln_SearchAddress_housenum.clear()
         self.dockwidget.ln_SearchAddress_unitnum.clear()
-
         self.dockwidget.cbo_SearchAddress_st_prefix.setCurrentIndex(0)
         self.dockwidget.cbo_SearchAddress_st_name.setCurrentIndex(0)
         self.dockwidget.cbo_SearchAddress_st_type.setCurrentIndex(0)
@@ -298,6 +299,8 @@ class LBRS_Updater:
         
         self.reset_result_displays()
 
+        self.dockwidget.cbo_SearchAddress_Tool.setCurrentIndex(0)
+
     def reset_result_displays(self): 
         self.dockwidget.tbl_SearchAddress_Results.clear()
         self.dockwidget.tbl_SearchAddress_Results.setColumnCount(0)
@@ -305,7 +308,7 @@ class LBRS_Updater:
         self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
         self.dockwidget.lblError.setText('')
     
-    def navigate(self):
+    def continue_from_menu(self):
         self.dockwidget.stackedWidget.setCurrentIndex(1)
 
     def execute_address_query(self):
@@ -499,3 +502,13 @@ class LBRS_Updater:
         # Will also shake the canvas into not showing the zoomed feature as selected if it wasn't to begin with.
         # if scale != None:
         canvas.zoomScale(600)
+
+    def continue_from_address_search(self):
+        if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Add':
+            self.dockwidget.stackedWidget.setCurrentIndex(2)
+        if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Update':
+            self.dockwidget.stackedWidget.setCurrentIndex(3)
+        if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Re-Align':
+            self.dockwidget.stackedWidget.setCurrentIndex(4)
+        if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Retire':
+            self.dockwidget.stackedWidget.setCurrentIndex(5)
