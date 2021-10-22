@@ -33,6 +33,7 @@ from .resources import *
 # Import the code for the DockWidget
 from .lbrs_updater_dockwidget import LBRS_UpdaterDockWidget
 import os.path
+import time
 
 
 class LBRS_Updater:
@@ -76,7 +77,6 @@ class LBRS_Updater:
         self.pluginIsActive = False
         self.dockwidget = None
 
-
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
@@ -92,18 +92,8 @@ class LBRS_Updater:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('LBRS_Updater', message)
 
-
-    def add_action(
-        self,
-        icon_path,
-        text,
-        callback,
-        enabled_flag=True,
-        add_to_menu=True,
-        add_to_toolbar=True,
-        status_tip=None,
-        whats_this=None,
-        parent=None):
+    def add_action(self, icon_path, text, callback, enabled_flag=True, add_to_menu=True, add_to_toolbar=True,
+                   status_tip=None, whats_this=None, parent=None):
         """Add a toolbar icon to the toolbar.
 
         :param icon_path: Path to the icon for this action. Can be a resource
@@ -166,7 +156,6 @@ class LBRS_Updater:
 
         return action
 
-
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
@@ -178,7 +167,6 @@ class LBRS_Updater:
             parent=self.iface.mainWindow())
 
     # --------------------------------------------------------------------------
-
 
     def onClosePlugin(self):
         """Cleanup necessary items here when plugin dockwidget is closed"""
@@ -196,7 +184,6 @@ class LBRS_Updater:
 
         self.pluginIsActive = False
 
-
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
 
@@ -210,7 +197,7 @@ class LBRS_Updater:
         # remove the toolbar
         del self.toolbar
 
-    #--------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
 
     def run(self):
         """Run method that loads and starts the plugin"""
@@ -380,12 +367,18 @@ class LBRS_Updater:
                 else:
                     query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
 
+        self.dockwidget.tbl_SearchAddress_Results.hide()
+        self.dockwidget.repaint()
+        time.sleep(0.02)
+        self.dockwidget.tbl_SearchAddress_Results.show()
+        self.dockwidget.repaint()
+
         if query != '':
-            print(query)
+            # print(query)
             self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
-                                    filter_=f'{query}', show_fields_list=['lsn', 'comm'])
+                                    filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
         else:
-            self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
+            self.reset_result_displays()
             self.dockwidget.lblError.setText('Error: Please refine search')
 
     def get_layer(self, layer_name):
@@ -495,7 +488,7 @@ class LBRS_Updater:
 
         features = layer.getFeatures(query)
         ids = [i.id() for i in features]
-        print(len(ids))
+        # print(len(ids))
         layer.selectByIds(ids)
         canvas.zoomToSelected(layer)
 
