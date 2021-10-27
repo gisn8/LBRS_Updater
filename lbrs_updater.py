@@ -27,6 +27,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
 from qgis._core import QgsProject
+from qgis.gui import QgsMapToolEmitPoint
 
 from .resources import *
 
@@ -236,7 +237,6 @@ class LBRS_Updater:
         # Page 1 - Search for Address
         # Tab change
         self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
-
         # Find
         self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
         # Clear
@@ -246,7 +246,6 @@ class LBRS_Updater:
             lambda: self.zoom_to_feature(self.get_layer('addresses')))
         # Continue
         self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
-
 
     def load_initial_data(self):
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
@@ -512,3 +511,40 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(4)
         if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Retire':
             self.dockwidget.stackedWidget.setCurrentIndex(5)
+
+    def get_previous_tool(self):
+        prev_tool = self.iface.mapCanvas().mapTool()
+        self.iface.mapCanvas().setMapTool(yadayada)
+
+    def get_xy_from_canvas(self, point, button):
+        xy = "{}, {}".format(point.x(), point.y())
+        return xy
+
+    def add_address_point(self):
+        # WIP!!! Some of this is pseudocode
+        layer = self.get_layer('addresses')
+
+        layer.startEditing()
+
+        feat = QgsFeature(layer.fields())
+
+        # Need some mechanism to capture XY here
+        canvas = self.iface.mapCanvas()
+        point_tool = QgsMapToolEmitPoint(self.iface.mapCanvas())
+        # geometry coordinates given need to be in (or converted to) the layer's CRS
+        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(123, 456)))
+
+        # Need to find nearest road segment to pull attributes into the form to confirm or override.
+
+        # The data will be confirmed via the form and entered here. Do we want hidden fields or values kept in variable?
+        feat.setAttributes([('housenum', self.dockwidget.ln_AddAddress_housenum), ('lsn', rfeature['lsn'])])  # idk
+        # Or set a single attribute by key or by index:
+        # feat.setAttribute('name', 'hello')
+        # feat.setAttribute(0, 'hello')
+
+        layer.addFeatures([feat])
+        self.iface.mapCanvas().refresh()
+
+        # To save edits: layer.commitChanges()
+        # To rollback and turn off edits: layer.rollback()
+        # If you want to stay in edit mode, you'll need to re-initialize: layer.startEditing()
