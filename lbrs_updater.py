@@ -28,6 +28,8 @@ from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
 from qgis._core import QgsProject
 from qgis.gui import QgsMapToolEmitPoint
+from qgis.core import QgsMapLayerProxyModel
+
 
 from .resources import *
 
@@ -221,168 +223,13 @@ class LBRS_Updater:
             # show the dockwidget
             # TODO: fix to allow choice of dock location
             self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
+            self.initialize()
             self.dockwidget.show()
 
-        self.set_connections()
-        self.load_initial_data()
-        self.reset_form()
 
-    def set_connections(self):
-        # All
-        self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
 
-        # Page 0 - Menu
-        self.dockwidget.btn_Menu_Continue.clicked.connect(lambda: self.continue_from_menu())
 
-        # Page 1 - Search for Address
-        # Tab change
-        self.dockwidget.tab_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
-        # Find
-        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
-        # Clear
-        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
-        # Zoom
-        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
-            lambda: self.zoom_to_feature(self.get_layer('addresses')))
-        # Continue
-        self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
-
-    def load_initial_data(self):
-        self.dockwidget.cbo_SearchAddress_st_name.addItem('')
-        self.dockwidget.cbo_SearchAddress_comm.addItem('')
-
-        address_layer = self.get_layer('addresses')
-        roads_layer = self.get_layer('roads')
-
-        self.dockwidget.cbo_SearchAddress_st_prefix.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_prefix'))
-        self.dockwidget.cbo_SearchAddress_st_name.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_name'))
-        self.dockwidget.cbo_SearchAddress_st_type.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_type'))
-        self.dockwidget.cbo_SearchAddress_st_suffix.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_suffix'))
-        self.dockwidget.cbo_SearchAddress_comm.addItems(
-            self.get_feature_values_list(address_layer, field_name='comm'))
-
-        self.dockwidget.cbo_SearchAddress_lsn.addItem('')
-        self.dockwidget.cbo_SearchAddress_lsn.addItems(
-            self.get_feature_values_list(address_layer, field_name='lsn'))
-
-        self.dockwidget.list_SearchAddress_roads_lsn.addItems(
-            self.get_feature_values_list(roads_layer, field_name='lsn'))
-
-    def reset_form(self):
-        # Menu
-        # Address Search
-        self.reset_address_search_form()
-
-        # Set default and hide error warning
-        self.dockwidget.lblError.setText('')
-
-        # Return to Menu
-        self.dockwidget.stackedWidget.setCurrentIndex(0)
-
-    def reset_address_search_form(self):
-        self.dockwidget.lblError.setText('')
-
-        self.dockwidget.ln_SearchAddress_housenum.clear()
-        self.dockwidget.ln_SearchAddress_unitnum.clear()
-        self.dockwidget.cbo_SearchAddress_st_prefix.setCurrentIndex(0)
-        self.dockwidget.cbo_SearchAddress_st_name.setCurrentIndex(0)
-        self.dockwidget.cbo_SearchAddress_st_type.setCurrentIndex(0)
-        self.dockwidget.cbo_SearchAddress_st_suffix.setCurrentIndex(0)
-        self.dockwidget.cbo_SearchAddress_comm.setCurrentIndex(0)
-
-        self.dockwidget.cbo_SearchAddress_lsn.setCurrentIndex(0)
-        
-        self.reset_result_displays()
-
-        self.dockwidget.cbo_SearchAddress_Tool.setCurrentIndex(0)
-
-    def reset_result_displays(self): 
-        self.dockwidget.tbl_SearchAddress_Results.clear()
-        self.dockwidget.tbl_SearchAddress_Results.setColumnCount(0)
-        self.dockwidget.tbl_SearchAddress_Results.setRowCount(0)
-        self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
-        self.dockwidget.lblError.setText('')
-    
-    def continue_from_menu(self):
-        self.dockwidget.stackedWidget.setCurrentIndex(1)
-
-    def execute_address_query(self):
-        # get active address tab, build search parameters based on the active tab, and populate results
-        self.dockwidget.lblError.setText('')
-        query = ''
-        address_tab_index = self.dockwidget.tab_SearchAddress.currentIndex()
-
-        # Component Search
-        if address_tab_index == 0:
-            query = '1=1'
-
-            if len(self.dockwidget.ln_SearchAddress_housenum.text()) > 0:
-                query = f"{query} AND to_string(housenum) = '{self.dockwidget.ln_SearchAddress_housenum.text()}'"
-
-            if len(self.dockwidget.ln_SearchAddress_unitnum.text()) > 0:
-                query = f"{query} AND unitnum = '{self.dockwidget.ln_SearchAddress_unitnum.text()}'"
-
-            if len(self.dockwidget.cbo_SearchAddress_st_prefix.currentText()) > 0:
-                query = f"{query} AND (" \
-                        f"st_prefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}' OR " \
-                        f"altprefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}')"
-
-            if len(self.dockwidget.cbo_SearchAddress_st_name.currentText()) > 0:
-                query = f"{query} AND (" \
-                        f"st_name = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}' OR " \
-                        f"altname = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}')"
-
-            if len(self.dockwidget.cbo_SearchAddress_st_type.currentText()) > 0:
-                query = f"{query} AND (" \
-                        f"st_type = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}' OR " \
-                        f"alttype = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}')"
-
-            if len(self.dockwidget.cbo_SearchAddress_st_suffix.currentText()) > 0:
-                query = f"{query} AND (" \
-                        f"st_suffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}' OR " \
-                        f"altsuffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}')"
-
-            if len(self.dockwidget.cbo_SearchAddress_comm.currentText()) > 0:
-                query = f"{query} AND comm = '{self.dockwidget.cbo_SearchAddress_comm.currentText()}'"
-
-            if query == '1=1':
-                query = ''
-
-        # Free-form Search
-        if address_tab_index == 1:
-            query = f"%{self.dockwidget.cbo_SearchAddress_lsn.currentText()}%"
-            if query == '%%':
-                query = ''
-            else:
-                query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
-
-        # Street-Level Search
-        if address_tab_index == 2:
-            if self.dockwidget.list_SearchAddress_roads_lsn.currentItem() is not None:
-                query = f"% {self.dockwidget.list_SearchAddress_roads_lsn.currentItem().text()}"
-                if query == '% ':
-                    query = ''
-                else:
-                    query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
-
-        self.dockwidget.tbl_SearchAddress_Results.hide()
-        self.dockwidget.repaint()
-        time.sleep(0.02)
-        self.dockwidget.tbl_SearchAddress_Results.show()
-        self.dockwidget.repaint()
-
-        if query != '':
-            # print(query)
-            self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
-                                    filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
-        else:
-            self.reset_result_displays()
-            self.dockwidget.lblError.setText('Error: Please refine search')
-
+    # Tools
     def get_layer(self, layer_name):
         try:
             layer = QgsProject.instance().mapLayersByName(layer_name)[0]
@@ -502,6 +349,226 @@ class LBRS_Updater:
         # if scale != None:
         canvas.zoomScale(600)
 
+
+
+
+    # Dockwidget
+    def initialize(self):
+        self.set_connections()
+        self.reset_layer_cbos()
+        self.reset_form()
+        self.limit_layer_cbo_types()
+
+    def set_connections(self):
+        # All
+        self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
+
+        # Page 0 - Menu
+        self.set_menu_connections()
+
+        # Page 1 - Search for Address
+        # Tab change
+        self.dockwidget.tabs_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
+        # Find
+        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
+        # Clear
+        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
+        # Zoom
+        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
+            lambda: self.zoom_to_feature(self.get_layer('addresses')))
+        # Continue
+        self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
+
+    def reset_form(self):
+        # Menu
+        self.reset_menu_form()
+
+        # Address Search
+        self.reset_address_search_form()
+
+        # Set default and hide error warning
+        self.dockwidget.lblError.setText('')
+
+        # Return to Menu
+        self.dockwidget.stackedWidget.setCurrentIndex(0)
+
+
+    # Menu page
+    def set_menu_connections(self):
+        self.dockwidget.mLyrCbo_Addresses.currentTextChanged.connect(lambda: self.activate_menu_tools())
+        self.dockwidget.mLyrCbo_Roads.currentTextChanged.connect(lambda: self.activate_menu_tools())
+        self.dockwidget.btn_Menu_Continue.clicked.connect(lambda: self.continue_from_menu())
+
+    def reset_layer_cbos(self):
+        # Commenting out for development. Reinstate when ready.
+        self.dockwidget.mLyrCbo_Addresses.setCurrentIndex(-1)
+        self.dockwidget.mLyrCbo_Roads.setCurrentIndex(-1)
+        self.dockwidget.grpTools.setEnabled(False)
+    
+    def reset_menu_form(self):
+        self.dockwidget.cbo_Menu_Tool.setCurrentIndex(0)
+        self.dockwidget.cbo_Menu_FeatureType.setCurrentIndex(0)
+
+    def limit_layer_cbo_types(self):
+        # From https://github.com/qgis/QGIS/issues/38472
+        # The map layer combo boxes don't translate layer type filters even after resetting them manually.
+        # This is the workaround. Requires: from qgis.core import QgsMapLayerProxyModel
+        self.dockwidget.mLyrCbo_Addresses.setFilters(QgsMapLayerProxyModel.PointLayer)
+        self.dockwidget.mLyrCbo_Roads.setFilters(QgsMapLayerProxyModel.LineLayer)
+    
+    def activate_menu_tools(self):
+        if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
+            self.dockwidget.lblError.setVisible(False)
+            self.dockwidget.lblError.setText('Loading data...')
+            self.dockwidget.lblError.setVisible(True)
+            self.dockwidget.repaint()
+            print(self.dockwidget.lblError.text())
+            self.load_initial_data()
+            self.dockwidget.lblError.setText('')
+            self.dockwidget.grpTools.setEnabled(True)
+        else:
+            self.dockwidget.grpTools.setEnabled(False)
+
+    def load_initial_data(self):
+        self.dockwidget.cbo_SearchAddress_st_name.addItem('')
+        self.dockwidget.cbo_SearchAddress_comm.addItem('')
+
+        # address_layer = self.get_layer('addresses')
+        # roads_layer = self.get_layer('roads')
+
+        address_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
+        roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
+
+        self.dockwidget.cbo_SearchAddress_st_prefix.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_prefix'))
+        self.dockwidget.cbo_SearchAddress_st_name.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_name'))
+        self.dockwidget.cbo_SearchAddress_st_type.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_type'))
+        self.dockwidget.cbo_SearchAddress_st_suffix.addItems(
+            self.get_feature_values_list(address_layer, field_name='st_suffix'))
+        self.dockwidget.cbo_SearchAddress_comm.addItems(
+            self.get_feature_values_list(address_layer, field_name='comm'))
+
+        self.dockwidget.cbo_SearchAddress_lsn.addItem('')
+        self.dockwidget.cbo_SearchAddress_lsn.addItems(
+            self.get_feature_values_list(address_layer, field_name='lsn'))
+
+        self.dockwidget.list_SearchAddress_roads_lsn.addItems(
+            self.get_feature_values_list(roads_layer, field_name='lsn'))
+
+    def continue_from_menu(self):
+        if self.dockwidget.cbo_Menu_FeatureType.currentText() == 'Address':
+            if self.dockwidget.cbo_Menu_Tool.currentText() == 'Search for':
+                self.dockwidget.stackedWidget.setCurrentIndex(1)
+            if self.dockwidget.cbo_Menu_Tool.currentText() == 'Add':
+                self.dockwidget.stackedWidget.setCurrentIndex(2)
+            if self.dockwidget.cbo_Menu_Tool.currentText() == 'Update':
+                self.dockwidget.stackedWidget.setCurrentIndex(3)
+            if self.dockwidget.cbo_Menu_Tool.currentText() == 'Re-Align':
+                self.dockwidget.stackedWidget.setCurrentIndex(4)
+            if self.dockwidget.cbo_Menu_Tool.currentText() == 'Retire':
+                self.dockwidget.stackedWidget.setCurrentIndex(5)
+
+
+    # Search Address page
+    def reset_address_search_form(self):
+        self.dockwidget.lblError.setText('')
+
+        self.dockwidget.ln_SearchAddress_housenum.clear()
+        self.dockwidget.ln_SearchAddress_unitnum.clear()
+        self.dockwidget.cbo_SearchAddress_st_prefix.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_name.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_type.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_st_suffix.setCurrentIndex(0)
+        self.dockwidget.cbo_SearchAddress_comm.setCurrentIndex(0)
+
+        self.dockwidget.cbo_SearchAddress_lsn.setCurrentIndex(0)
+        
+        self.reset_result_displays()
+
+        self.dockwidget.cbo_SearchAddress_Tool.setCurrentIndex(0)
+
+    def reset_result_displays(self): 
+        self.dockwidget.tbl_SearchAddress_Results.clear()
+        self.dockwidget.tbl_SearchAddress_Results.setColumnCount(0)
+        self.dockwidget.tbl_SearchAddress_Results.setRowCount(0)
+        self.dockwidget.lbl_SearchAddress_Results.setText('Results: 0')
+        self.dockwidget.lblError.setText('')
+
+    def execute_address_query(self):
+        # get active address tab, build search parameters based on the active tab, and populate results
+        self.dockwidget.lblError.setText('')
+        query = ''
+        address_tab_index = self.dockwidget.tab_SearchAddress.currentIndex()
+
+        # Component Search
+        if address_tab_index == 0:
+            query = '1=1'
+
+            if len(self.dockwidget.ln_SearchAddress_housenum.text()) > 0:
+                query = f"{query} AND to_string(housenum) = '{self.dockwidget.ln_SearchAddress_housenum.text()}'"
+
+            if len(self.dockwidget.ln_SearchAddress_unitnum.text()) > 0:
+                query = f"{query} AND unitnum = '{self.dockwidget.ln_SearchAddress_unitnum.text()}'"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_prefix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_prefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}' OR " \
+                        f"altprefix = '{self.dockwidget.cbo_SearchAddress_st_prefix.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_name.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_name = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}' OR " \
+                        f"altname = '{self.dockwidget.cbo_SearchAddress_st_name.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_type.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_type = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}' OR " \
+                        f"alttype = '{self.dockwidget.cbo_SearchAddress_st_type.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_st_suffix.currentText()) > 0:
+                query = f"{query} AND (" \
+                        f"st_suffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}' OR " \
+                        f"altsuffix = '{self.dockwidget.cbo_SearchAddress_st_suffix.currentText()}')"
+
+            if len(self.dockwidget.cbo_SearchAddress_comm.currentText()) > 0:
+                query = f"{query} AND comm = '{self.dockwidget.cbo_SearchAddress_comm.currentText()}'"
+
+            if query == '1=1':
+                query = ''
+
+        # Free-form Search
+        if address_tab_index == 1:
+            query = f"%{self.dockwidget.cbo_SearchAddress_lsn.currentText()}%"
+            if query == '%%':
+                query = ''
+            else:
+                query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
+
+        # Street-Level Search
+        if address_tab_index == 2:
+            if self.dockwidget.list_SearchAddress_roads_lsn.currentItem() is not None:
+                query = f"% {self.dockwidget.list_SearchAddress_roads_lsn.currentItem().text()}"
+                if query == '% ':
+                    query = ''
+                else:
+                    query = f"lsn LIKE '{query}' OR alsn LIKE '{query}'"
+
+        self.dockwidget.tbl_SearchAddress_Results.hide()
+        self.dockwidget.repaint()
+        time.sleep(0.02)
+        self.dockwidget.tbl_SearchAddress_Results.show()
+        self.dockwidget.repaint()
+
+        if query != '':
+            # print(query)
+            self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
+                                    filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
+        else:
+            self.reset_result_displays()
+            self.dockwidget.lblError.setText('Error: Please refine search')
+
     def continue_from_address_search(self):
         if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Add':
             self.dockwidget.stackedWidget.setCurrentIndex(2)
@@ -511,6 +578,29 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(4)
         if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Retire':
             self.dockwidget.stackedWidget.setCurrentIndex(5)
+
+
+    #Add Address page
+    # WIP
+    """
+    Steps to add address by point. 
+    click the button
+    check if necessary layers exist in project
+    get the previous tool
+    switch to xy tool
+    { lblError "Press <Esc> to cancel" and switch to previous tool }
+    on click, get XY, empty lblError, then switch to previous tool
+    convert PointXY values to DD and layer.prj units
+    set coordinate labels
+    seek nearest road segment feature
+    activate address and road tables
+    use road data to fill in address data table
+    calculate housenum and absside
+    begin edit of address layer
+    add feature to address layer
+    """
+
+
 
     def get_previous_tool(self):
         prev_tool = self.iface.mapCanvas().mapTool()
@@ -548,3 +638,8 @@ class LBRS_Updater:
         # To save edits: layer.commitChanges()
         # To rollback and turn off edits: layer.rollback()
         # If you want to stay in edit mode, you'll need to re-initialize: layer.startEditing()
+
+    def convert_xy(self):
+        # Convert a given PointXY object and get location assignments for DD and map projection units
+
+        return lat, long, x, y
