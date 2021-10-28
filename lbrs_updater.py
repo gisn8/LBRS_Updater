@@ -241,6 +241,17 @@ class LBRS_Updater:
             except:
                 pass
 
+    def check_for_fields(self, layer, fields):
+        # modified from https://gis.stackexchange.com/questions/299263/
+        i = 1
+        for field in fields:
+            field_index = layer.fields().indexFromName(field)
+            if field_index == -1:
+                i = i * 0
+            else:
+                i = i * 1
+        return i
+
     def get_feature_values_list(self, layer, field_name, filter_=None, distinct=1):
         if filter_ is None:
             filter_ = f'{field_name} is not NULL'
@@ -375,7 +386,7 @@ class LBRS_Updater:
         self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
         # Zoom
         self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
-            lambda: self.zoom_to_feature(self.get_layer('addresses')))
+            lambda: self.zoom_to_feature(self.dockwidget.mLyrCbo_Addresses.currentLayer()))
         # Continue
         self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
 
@@ -404,10 +415,6 @@ class LBRS_Updater:
         self.dockwidget.mLyrCbo_Addresses.setCurrentIndex(-1)
         self.dockwidget.mLyrCbo_Roads.setCurrentIndex(-1)
         self.dockwidget.grpTools.setEnabled(False)
-    
-    def reset_menu_form(self):
-        self.dockwidget.cbo_Menu_Tool.setCurrentIndex(0)
-        self.dockwidget.cbo_Menu_FeatureType.setCurrentIndex(0)
 
     def limit_layer_cbo_types(self):
         # From https://github.com/qgis/QGIS/issues/38472
@@ -415,26 +422,41 @@ class LBRS_Updater:
         # This is the workaround. Requires: from qgis.core import QgsMapLayerProxyModel
         self.dockwidget.mLyrCbo_Addresses.setFilters(QgsMapLayerProxyModel.PointLayer)
         self.dockwidget.mLyrCbo_Roads.setFilters(QgsMapLayerProxyModel.LineLayer)
-    
+
+    def reset_menu_form(self):
+        self.dockwidget.cbo_Menu_Tool.setCurrentIndex(0)
+        self.dockwidget.cbo_Menu_FeatureType.setCurrentIndex(0)
+
     def activate_menu_tools(self):
         if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
-            self.dockwidget.lblError.setVisible(False)
-            self.dockwidget.lblError.setText('Loading data...')
-            self.dockwidget.lblError.setVisible(True)
-            self.dockwidget.repaint()
-            print(self.dockwidget.lblError.text())
-            self.load_initial_data()
-            self.dockwidget.lblError.setText('')
-            self.dockwidget.grpTools.setEnabled(True)
-        else:
-            self.dockwidget.grpTools.setEnabled(False)
+            a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(),['featureid', 'housenum',
+                                                                                        'unitnum', 'comment', 'side',
+                                                                                        'absside', 'struc_type',
+                                                                                        'source', 'comment', 'x' , 'y'])
+            if a == 1:
+                r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), ['segid', 'roadtype', 'roadnumber',
+                                                                                         'st_prefix', 'st_name', 'st_type', 'st_suffix',
+                                                                                         'altprefix', 'altname', 'alttype', 'altsuffix',
+                                                                                         'fieldnote', 'leftfrom', 'rightto'])
+                if r == 1:
+                    self.dockwidget.lblError.setVisible(False)
+                    self.dockwidget.lblError.setText('Loading data...')
+                    self.dockwidget.lblError.setVisible(True)
+                    self.dockwidget.repaint()
+                    self.load_initial_data()
+                    self.dockwidget.lblError.setText('')
+                    self.dockwidget.grpTools.setEnabled(True)
+                else:
+                    self.dockwidget.grpTools.setEnabled(False)
+                    self.dockwidget.lblError.setText('Road layer invalid')
+            else:
+                self.dockwidget.grpTools.setEnabled(False)
+                self.dockwidget.lblError.setText('Address layer invalid')
+
 
     def load_initial_data(self):
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
         self.dockwidget.cbo_SearchAddress_comm.addItem('')
-
-        # address_layer = self.get_layer('addresses')
-        # roads_layer = self.get_layer('roads')
 
         address_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
         roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
@@ -563,7 +585,7 @@ class LBRS_Updater:
 
         if query != '':
             # print(query)
-            self.pop_tbl(self.get_layer('addresses'), self.dockwidget.tbl_SearchAddress_Results,
+            self.pop_tbl(self.dockwidget.mLyrCbo_Addresses, self.dockwidget.tbl_SearchAddress_Results,
                                     filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
         else:
             self.reset_result_displays()
@@ -583,9 +605,8 @@ class LBRS_Updater:
     #Add Address page
     # WIP
     """
-    Steps to add address by point. 
+    -- Steps to add address by point. -- 
     click the button
-    check if necessary layers exist in project
     get the previous tool
     switch to xy tool
     { lblError "Press <Esc> to cancel" and switch to previous tool }
@@ -612,7 +633,7 @@ class LBRS_Updater:
 
     def add_address_point(self):
         # WIP!!! Some of this is pseudocode
-        layer = self.get_layer('addresses')
+        layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
 
         layer.startEditing()
 
