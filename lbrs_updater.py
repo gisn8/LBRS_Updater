@@ -26,7 +26,7 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
-from qgis._core import QgsProject
+from qgis._core import QgsProject, QgsSpatialIndex, QgsFeature, QgsFeatureRequest
 from qgis.gui import QgsMapToolEmitPoint
 from qgis.core import QgsMapLayerProxyModel
 
@@ -52,6 +52,7 @@ class LBRS_Updater:
         """
         # Save reference to the QGIS interface
         self.iface = iface
+        self.canvas = self.iface.mapCanvas()
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -253,6 +254,7 @@ class LBRS_Updater:
         return i
 
     def get_feature_values_list(self, layer, field_name, filter_=None, distinct=1):
+        # Used to populate values in combo boxes
         if filter_ is None:
             filter_ = f'{field_name} is not NULL'
         else:
@@ -360,6 +362,13 @@ class LBRS_Updater:
         # if scale != None:
         canvas.zoomScale(600)
 
+    def get_xy_from_canvas(self, point, button):
+        # Report map coordinates from a canvas click
+        self.x = point.x()
+        self.y = point.y()
+        self.point = point
+        # print(f"{x}, {y}")
+
 
 
 
@@ -370,6 +379,9 @@ class LBRS_Updater:
         self.reset_form()
         self.limit_layer_cbo_types()
 
+        # For dev
+        self.dockwidget.stackedWidget.setCurrentIndex(2)
+
     def set_connections(self):
         # All
         self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
@@ -378,30 +390,31 @@ class LBRS_Updater:
         self.set_menu_connections()
 
         # Page 1 - Search for Address
-        # Tab change
-        self.dockwidget.tabs_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
-        # Find
-        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
-        # Clear
-        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
-        # Zoom
-        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
-            lambda: self.zoom_to_feature(self.dockwidget.mLyrCbo_Addresses.currentLayer()))
-        # Continue
-        self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
+        self.set_search_address_connections()
+
+        # Page 2 - Add Address
+        self.set_add_address_connections()
+
 
     def reset_form(self):
-        # Menu
-        self.reset_menu_form()
-
-        # Address Search
-        self.reset_address_search_form()
+        # -- Dockwidget --
 
         # Set default and hide error warning
         self.dockwidget.lblError.setText('')
 
         # Return to Menu
         self.dockwidget.stackedWidget.setCurrentIndex(0)
+
+        # -- Menu --
+        self.reset_menu_form()
+
+        # -- Address Search --
+        self.reset_address_search_form()
+
+        # -- Add Address --
+        self.reset_add_address_form()
+
+
 
 
     # Menu page
@@ -492,8 +505,25 @@ class LBRS_Updater:
             if self.dockwidget.cbo_Menu_Tool.currentText() == 'Retire':
                 self.dockwidget.stackedWidget.setCurrentIndex(5)
 
+        else:
+            # For quick access in dev
+            self.dockwidget.stackedWidget.setCurrentIndex(2)
+
 
     # Search Address page
+    def set_search_address_connections(self):
+        # Tab change
+        self.dockwidget.tabs_SearchAddress.currentChanged.connect(lambda: self.reset_result_displays())
+        # Find
+        self.dockwidget.btn_SearchAddress_Find.clicked.connect(lambda: self.execute_address_query())
+        # Clear
+        self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
+        # Zoom
+        self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
+            lambda: self.zoom_to_feature(self.dockwidget.mLyrCbo_Addresses.currentLayer()))
+        # Continue
+        self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
+
     def reset_address_search_form(self):
         self.dockwidget.lblError.setText('')
 
@@ -603,33 +633,88 @@ class LBRS_Updater:
 
 
     #Add Address page
+    def set_add_address_connections(self):
+        self.dockwidget.btn_AddAddressByPoint_PlaceAddressPoint.clicked.connect(self.place_address_point)
+
+    def reset_add_address_form(self):
+        # Reset coord labels
+        self.dockwidget.lbl_AddAddress_Lat.setText('')
+        self.dockwidget.lbl_AddAddress_Long.setText('')
+        self.dockwidget.lbl_AddAddress_X.setText('')
+        self.dockwidget.lbl_AddAddress_Y.setText('')
+
     # WIP
     """
     -- Steps to add address by point. -- 
-    click the button
-    get the previous tool
-    switch to xy tool
-    { lblError "Press <Esc> to cancel" and switch to previous tool }
+    [x] layer validation (done beforehand)
+    [x] click the button
+    [x] get the previous tool
+    [x] switch to xy tool
+    [ ] lblError "Press <Esc> to cancel" and switch to previous tool
     on click, get XY, empty lblError, then switch to previous tool
-    convert PointXY values to DD and layer.prj units
-    set coordinate labels
-    seek nearest road segment feature
-    activate address and road tables
-    use road data to fill in address data table
-    calculate housenum and absside
-    begin edit of address layer
-    add feature to address layer
+    [ ] convert PointXY values to DD and layer.prj units
+    [ ] set coordinate labels
+    [ ] seek nearest road segment feature
+    [ ] activate address and road tables
+    [ ] use road data to fill in address data table
+    [ ] calculate housenum and absside
+    [ ] begin edit of address layer
+    [ ] add feature to address layer
     """
 
+    def place_address_point(self):
+        # Pycharm doesn't like creating a self.variable outside __init__. Tough! It works just fine!
+        self.x = 0
+        self.y = 0
+
+        # Get the current tool
+        self.prev_tool = self.canvas.mapTool()
+
+        # Create the map tool using the canvas reference
+        self.point_tool = QgsMapToolEmitPoint(self.canvas)
+        self.point_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine
+        self.point_tool.canvasClicked.connect(self.manage_address_attributes)
+        self.canvas.setMapTool(self.point_tool)
+
+    def manage_address_attributes(self):
+        self.dockwidget.lbl_AddAddress_X.setText(f"{round(self.x,3)}")
+        self.dockwidget.lbl_AddAddress_Y.setText(f"{round(self.y,3)}")
+
+        road_feature = self.get_nearest_road_feature()
+
+        self.dockwidget.lblError.setText(f"{road_feature['lsn']}")
 
 
-    def get_previous_tool(self):
-        prev_tool = self.iface.mapCanvas().mapTool()
-        self.iface.mapCanvas().setMapTool(yadayada)
 
-    def get_xy_from_canvas(self, point, button):
-        xy = "{}, {}".format(point.x(), point.y())
-        return xy
+        self.iface.mapCanvas().setMapTool(self.prev_tool)
+
+    def get_nearest_road_feature(self):
+        # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
+
+        # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
+        roads_layer = self.get_layer('roads')
+        provider = roads_layer.dataProvider()
+
+        spatial_index = QgsSpatialIndex()  # create spatial index object
+
+        features = provider.getFeatures()  # gets all features in layer
+
+        # insert features to index
+        for feature in features:
+            spatial_index.insertFeature(feature)
+
+        # QgsSpatialIndex.nearestNeighbor (QgsPoint point, int neighbors)
+        fid = spatial_index.nearestNeighbor(self.point, 1)[0]  # we need only one neighbour
+        feats = roads_layer.getFeatures(f"$id = {fid}")
+        feat = None
+        # No, feats[0] does not work.
+        for feat in feats:
+            break
+        return feat
+
+
+
+
 
     def add_address_point(self):
         # WIP!!! Some of this is pseudocode
