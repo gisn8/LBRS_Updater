@@ -397,6 +397,9 @@ class LBRS_Updater:
 
 
     def reset_form(self):
+        # -- Variables --
+        self.point = None
+
         # -- Dockwidget --
 
         # Set default and hide error warning
@@ -465,7 +468,6 @@ class LBRS_Updater:
             else:
                 self.dockwidget.grpTools.setEnabled(False)
                 self.dockwidget.lblError.setText('Address layer invalid')
-
 
     def load_initial_data(self):
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
@@ -634,7 +636,9 @@ class LBRS_Updater:
 
     #Add Address page
     def set_add_address_connections(self):
-        self.dockwidget.btn_AddAddressByPoint_PlaceAddressPoint.clicked.connect(self.place_address_point)
+        self.dockwidget.btn_AddAddressByPoint_PlaceAddressPoint.clicked.connect(lambda: self.start_xy_tool('PlaceAddressPoint'))
+        self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.clicked.connect(lambda: self.start_xy_tool('OverrideSelectedRoad'))
+        self.dockwidget.btn_AddAddressByPoint_Cancel.clicked.connect(self.cancel_canvas_capture)
 
     def reset_add_address_form(self):
         # Reset coord labels
@@ -650,8 +654,8 @@ class LBRS_Updater:
     [x] click the button
     [x] get the previous tool
     [x] switch to xy tool
-    [ ] lblError "Press <Esc> to cancel" and switch to previous tool
-    on click, get XY, empty lblError, then switch to previous tool
+    [x] Cancel xy tool?
+    [ ] override selected road tool
     [ ] convert PointXY values to DD and layer.prj units
     [ ] set coordinate labels
     [ ] seek nearest road segment feature
@@ -662,31 +666,133 @@ class LBRS_Updater:
     [ ] add feature to address layer
     """
 
-    def place_address_point(self):
+    def start_xy_tool(self, btn):
         # Pycharm doesn't like creating a self.variable outside __init__. Tough! It works just fine!
-        self.x = 0
-        self.y = 0
+        # Doing this just in case we have a point already assigned and decided we didn't want to override it.
+        if self.point == None:
+            self.x = 0
+            self.y = 0
 
         # Get the current tool
         self.prev_tool = self.canvas.mapTool()
 
         # Create the map tool using the canvas reference
-        self.point_tool = QgsMapToolEmitPoint(self.canvas)
-        self.point_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine
-        self.point_tool.canvasClicked.connect(self.manage_address_attributes)
-        self.canvas.setMapTool(self.point_tool)
+        # A self. assignment was found necessary for the tool to work ¯\_(ツ)_/¯
+        self.xy_tool = QgsMapToolEmitPoint(self.canvas)
+        self.xy_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine
+        if btn == 'PlaceAddressPoint':
+            self.xy_tool.canvasClicked.connect(self.manage_address_attributes)
+            self.canvas.setMapTool(self.xy_tool)
+            self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
+        if btn == 'OverrideSelectedRoad':
+            self.xy_tool.canvasClicked.connect(self.get_road_attributes)
+            self.canvas.setMapTool(self.xy_tool)
+            self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def manage_address_attributes(self):
-        self.dockwidget.lbl_AddAddress_X.setText(f"{round(self.x,3)}")
-        self.dockwidget.lbl_AddAddress_Y.setText(f"{round(self.y,3)}")
+        self.dockwidget.lbl_AddAddress_X.setText(f"{round(self.x, 3)}")
+        self.dockwidget.lbl_AddAddress_Y.setText(f"{round(self.y, 3)}")
+        self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.setEnabled(True)
+        self.get_road_attributes()
+    
+    def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix='' ):
+        lsn = ''
+        if housenum != '':
+            lsn = f"{housenum} "
+        if st_prefix != '':
+            lsn = f"{lsn}{st_prefix} "
+        lsn = f"{lsn}{st_name}"
+        if st_type != '':
+            lsn = f"{lsn} {st_type}"
+        if st_suffix != '':
+            lsn = f"{lsn} {st_suffix}"
+
+        return lsn
+
+    def get_road_attributes(self):
+        self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
+
+        self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
+        self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(True)
 
         road_feature = self.get_nearest_road_feature()
 
-        self.dockwidget.lblError.setText(f"{road_feature['lsn']}")
+        st_lsn = self.build_lsn(housenum='', st_prefix=road_feature['lprefix'] or '',st_name=road_feature['lname'] or '',
+                               st_type=road_feature['ltype'] or '',st_suffix=road_feature['lsuffix'] or '')
+
+        address_values = {
+            "segid": str(int(road_feature['segid'])),
+            "housenum": '',
+            "unitnum": '',
+            "struc_type": '',
+            "poi_name": '',
+            "st_lsn": st_lsn,
+            "absside": '',
+            "muni": '',
+            "zipcode": '',
+            "comm": '',
+            "note": ''
+        }
+        enabled_address_cells = ['housenum']
+        row_count = self.dockwidget.tbl_AddAddress_AddressInfo.rowCount()
+        for row in range(row_count):
+            row_name = self.dockwidget.tbl_AddAddress_AddressInfo.verticalHeaderItem(row).text()
+
+            if row_name in enabled_address_cells:
+                item = QTableWidgetItem(str(row * 0))
+                item.setFlags(Qt.ItemIsEditable | Qt.ItemIsEnabled)
+                item.setText(f"{address_values[row_name]}")
+                self.dockwidget.tbl_AddAddress_AddressInfo.setItem(row, 0, item)
+            else:
+                item = QTableWidgetItem(str(row * 0))
+                flags = Qt.ItemFlags()
+                flags != QtCore.Qt.ItemIsEditable  # It works.
+                item.setFlags(flags)
+                item.setText(f"{address_values[row_name]}")
+                self.dockwidget.tbl_AddAddress_AddressInfo.setItem(row, 0, item)
+            # grab the key from the road_values dictionary and place the value
+
+        l_lsn = self.build_lsn(housenum='', st_prefix=road_feature['lprefix'] or '', st_name=road_feature['lname'] or '',
+                               st_type=road_feature['ltype'] or '', st_suffix=road_feature['lsuffix'] or '')
+        r_lsn = self.build_lsn(housenum='', st_prefix=road_feature['rprefix'] or '', st_name=road_feature['rname'] or '',
+                               st_type=road_feature['rtype'] or '', st_suffix=road_feature['rsuffix'] or '')
+
+        road_values = {
+            "segid": str(int(road_feature['segid'])),
+            "roadtype": road_feature['roadtype'],
+            "roadnumber": road_feature['roadnumber'],
+            "leftfrom": road_feature['leftfrom'],
+            "leftto": road_feature['leftto'],
+            "l_lsn": l_lsn,
+            "lcomm": road_feature['lcomm'],
+            "rightfrom": road_feature['rightfrom'],
+            "rightto": road_feature['rightto'],
+            "r_lsn": r_lsn,
+            "rcomm": road_feature['rcomm']
+        }
 
 
+        row_count = self.dockwidget.tbl_AddAddress_RoadInfo.rowCount()
+        for row in range(row_count):
+            row_name = self.dockwidget.tbl_AddAddress_RoadInfo.verticalHeaderItem(row).text()
+            item = QTableWidgetItem(str(row * 0))
+            flags = Qt.ItemFlags()
+            flags != QtCore.Qt.ItemIsEditable  # It works.
+            item.setFlags(flags)
+            item.setText(f"{road_values[row_name]}")
+            self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
 
         self.iface.mapCanvas().setMapTool(self.prev_tool)
+    
+    def get_nearest_road(self):
+        # Get the current tool
+        self.prev_tool = self.canvas.mapTool()
+    
+    def cancel_canvas_capture(self):
+        self.iface.mapCanvas().setMapTool(self.prev_tool)
+
+
+    
 
     def get_nearest_road_feature(self):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
@@ -694,17 +800,18 @@ class LBRS_Updater:
         # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
         roads_layer = self.get_layer('roads')
         provider = roads_layer.dataProvider()
+        features = provider.getFeatures()  # gets all features in layer
 
         spatial_index = QgsSpatialIndex()  # create spatial index object
-
-        features = provider.getFeatures()  # gets all features in layer
 
         # insert features to index
         for feature in features:
             spatial_index.insertFeature(feature)
 
         # QgsSpatialIndex.nearestNeighbor (QgsPoint point, int neighbors)
-        fid = spatial_index.nearestNeighbor(self.point, 1)[0]  # we need only one neighbour
+        point = self.point  # assigned in an earlier tool.
+        # we need only 1 neighbour, [0] gets the fid value out of the list
+        fid = spatial_index.nearestNeighbor(point, 1)[0]
         feats = roads_layer.getFeatures(f"$id = {fid}")
         feat = None
         # No, feats[0] does not work.
@@ -715,35 +822,6 @@ class LBRS_Updater:
 
 
 
-
-    def add_address_point(self):
-        # WIP!!! Some of this is pseudocode
-        layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
-
-        layer.startEditing()
-
-        feat = QgsFeature(layer.fields())
-
-        # Need some mechanism to capture XY here
-        canvas = self.iface.mapCanvas()
-        point_tool = QgsMapToolEmitPoint(self.iface.mapCanvas())
-        # geometry coordinates given need to be in (or converted to) the layer's CRS
-        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(123, 456)))
-
-        # Need to find nearest road segment to pull attributes into the form to confirm or override.
-
-        # The data will be confirmed via the form and entered here. Do we want hidden fields or values kept in variable?
-        feat.setAttributes([('housenum', self.dockwidget.ln_AddAddress_housenum), ('lsn', rfeature['lsn'])])  # idk
-        # Or set a single attribute by key or by index:
-        # feat.setAttribute('name', 'hello')
-        # feat.setAttribute(0, 'hello')
-
-        layer.addFeatures([feat])
-        self.iface.mapCanvas().refresh()
-
-        # To save edits: layer.commitChanges()
-        # To rollback and turn off edits: layer.rollback()
-        # If you want to stay in edit mode, you'll need to re-initialize: layer.startEditing()
 
     def convert_xy(self):
         # Convert a given PointXY object and get location assignments for DD and map projection units
