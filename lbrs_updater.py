@@ -692,18 +692,16 @@ class LBRS_Updater:
         self.xy_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine
         if btn == 'PlaceAddressPoint':
             self.xy_tool.canvasClicked.connect(self.manage_address_attributes)
-            self.canvas.setMapTool(self.xy_tool)
-            self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
         if btn == 'OverrideSelectedRoad':
-            self.xy_tool.canvasClicked.connect(self.get_road_attributes)
-            self.canvas.setMapTool(self.xy_tool)
-            self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
+            self.xy_tool.canvasClicked.connect(self.get_context_attributes)
+        self.canvas.setMapTool(self.xy_tool)
+        self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def manage_address_attributes(self):
         self.dockwidget.lbl_AddAddress_X.setText(f"{round(self.x, 3)}")
         self.dockwidget.lbl_AddAddress_Y.setText(f"{round(self.y, 3)}")
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.setEnabled(True)
-        self.get_road_attributes()
+        self.get_context_attributes()
     
     def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix=''):
         lsn = ''
@@ -719,14 +717,17 @@ class LBRS_Updater:
 
         return lsn
 
-    def get_road_attributes(self):
+    def get_context_attributes(self):
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
         self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(True)
 
-        road_feature = self.get_nearest_road_feature(self.point)
-        m_dist, side_of_line = self.get_nearest_road_segment_context(road_feature, self.point)
+        road_feature_data = self.get_nearest_road_feature(self.point)
+        road_feature = road_feature_data['road_feature']
+        context = road_feature_data['context']
+        m_dist = context['m_dist']
+        side_of_line = context['side_of_line']
 
         st_lsn = self.build_lsn(housenum='',
                                 st_prefix=road_feature[f"{side_of_line}prefix"] or road_feature['st_prefix'] or '',
@@ -748,24 +749,18 @@ class LBRS_Updater:
             "note": ''
         }
         enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
-        row_count = self.dockwidget.tbl_AddAddress_AddressInfo.rowCount()
+        self.pop_result_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
 
-        for row in range(row_count):
-            row_name = self.dockwidget.tbl_AddAddress_AddressInfo.verticalHeaderItem(row).text()
-            item = QTableWidgetItem(str(row * 0))
-            if row_name in enabled_address_cells:
-                flags = (Qt.ItemIsEditable | Qt.ItemIsEnabled)
-            else:
-                flags = Qt.ItemIsEnabled
-            item.setFlags(flags)
-            item.setText(f"{address_values[row_name]}")
-            self.dockwidget.tbl_AddAddress_AddressInfo.setItem(row, 0, item)
-            # grab the key from the road_values dictionary and place the value
-
-        l_lsn = self.build_lsn(housenum='', st_prefix=road_feature['lprefix'] or '', st_name=road_feature['lname'] or '',
-                               st_type=road_feature['ltype'] or '', st_suffix=road_feature['lsuffix'] or '')
-        r_lsn = self.build_lsn(housenum='', st_prefix=road_feature['rprefix'] or '', st_name=road_feature['rname'] or '',
-                               st_type=road_feature['rtype'] or '', st_suffix=road_feature['rsuffix'] or '')
+        l_lsn = self.build_lsn(housenum='', 
+                               st_prefix=road_feature['lprefix'] or '', 
+                               st_name=road_feature['lname'] or '',
+                               st_type=road_feature['ltype'] or '', 
+                               st_suffix=road_feature['lsuffix'] or '')
+        r_lsn = self.build_lsn(housenum='', 
+                               st_prefix=road_feature['rprefix'] or '', 
+                               st_name=road_feature['rname'] or '',
+                               st_type=road_feature['rtype'] or '', 
+                               st_suffix=road_feature['rsuffix'] or '')
 
         road_values = {
             "segid": str(int(road_feature['segid'])),
@@ -780,36 +775,38 @@ class LBRS_Updater:
             "r_lsn": r_lsn,
             "rcomm": road_feature['rcomm']
         }
-
-        row_count = self.dockwidget.tbl_AddAddress_RoadInfo.rowCount()
-        for row in range(row_count):
-            row_name = self.dockwidget.tbl_AddAddress_RoadInfo.verticalHeaderItem(row).text()
-            item = QTableWidgetItem(str(row * 0))
-            # flags != QtCore.Qt.ItemIsEditable  # It works.
-            flags = Qt.ItemIsEnabled
-            item.setFlags(flags)
-            item.setText(f"{road_values[row_name]}")
-            self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
+        enabled_road_cells = []
+        self.pop_result_values_table(self.dockwidget.tbl_AddAddress_RoadInfo, road_values, enabled_road_cells)
 
         self.iface.mapCanvas().setMapTool(self.prev_tool)
     
-    def get_nearest_road(self):
+    def pop_result_values_table(self, table, values, enabled_cells):
+        row_count = table.rowCount()
+        for row in range(row_count):
+            row_name = table.verticalHeaderItem(row).text()
+            item = QTableWidgetItem(str(row * 0))
+            if row_name in enabled_cells:
+                flags = (Qt.ItemIsEditable | Qt.ItemIsEnabled)
+            else:
+                flags = Qt.ItemIsEnabled
+            item.setFlags(flags)
+            item.setText(f"{values[row_name]}")
+            table.setItem(row, 0, item)
+
+    """def get_nearest_road(self):
         # Get the current tool
-        self.prev_tool = self.canvas.mapTool()
+        self.prev_tool = self.canvas.mapTool()"""
     
     def cancel_canvas_capture(self):
         self.iface.mapCanvas().setMapTool(self.prev_tool)
 
-
-    
-
     def get_nearest_road_feature(self, point):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
-
         # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
         roads_layer = self.get_layer('roads')
-        provider = roads_layer.dataProvider()
-        features = provider.getFeatures()  # gets all features in layer
+        # provider = roads_layer.dataProvider()
+        # features = provider.getFeatures()  # gets all features in layer
+        features = roads_layer.getFeatures()
 
         spatial_index = QgsSpatialIndex()  # create spatial index object
 
@@ -818,15 +815,28 @@ class LBRS_Updater:
             spatial_index.insertFeature(feature)
 
         # QgsSpatialIndex.nearestNeighbor (QgsPoint point, int neighbors)
-        # we need only 1 neighbour, [0] gets the fid value out of the list
-        fid = spatial_index.nearestNeighbor(point, 1)[0]
-        road_features = roads_layer.getFeatures(f"$id = {fid}")
+        fids = spatial_index.nearestNeighbor(point, 5)  # Comparing nearest 5. Using only 1 was not always accurate.
+        dist = 999999
+        fid_hold = 0
+        context_hold = None
+        for fid in fids:
+            road_features = roads_layer.getFeatures(f"$id = {fid}")
+            road_feature = None
+            # No, feats[0] does not work.
+            for road_feature in road_features:
+                context = self.get_nearest_road_segment_context(road_feature, point)
+                min_dist = context['min_dist']
+                if min_dist < dist:
+                    dist = min_dist
+                    fid_hold = fid
+                    context_hold = context
+
+        road_features = roads_layer.getFeatures(f"$id = {fid_hold}")
         road_feature = None
         # No, feats[0] does not work.
         for road_feature in road_features:
             break
-
-        return road_feature
+        return {'road_feature': road_feature, 'context': context_hold}
 
     def get_nearest_road_segment_context(self, road_feature, point):
         # From https://qgis.org/api/classQgsGeometry.html#af949da066f8d1649a043cd320af1e7f7
@@ -864,8 +874,9 @@ class LBRS_Updater:
         print(f"side_of_line: {side_of_line}")
         """
 
-        # I don't need the min_dist, nearest_point_on_line_obj, or nearest_segment_of_line passed on.
-        return m_dist, side_of_line
+        # Then x = get_nearest_road_segment_context('variable_name')
+        return {'min_dist': min_dist, 'nearest_point_on_line_obj': nearest_point_on_line_obj, 'm_dist': m_dist,
+                'nearest_segment_of_line': nearest_segment_of_line, 'side_of_line': side_of_line}
 
 
     def convert_xy(self):
