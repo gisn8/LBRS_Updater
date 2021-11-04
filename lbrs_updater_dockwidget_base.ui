@@ -733,6 +733,13 @@
             <string>By Point</string>
            </attribute>
            <layout class="QGridLayout" name="gridLayout_11">
+            <item row="0" column="1">
+             <widget class="Line" name="line">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+             </widget>
+            </item>
             <item row="0" column="0">
              <layout class="QHBoxLayout" name="horizontalLayout_9">
               <item>
@@ -933,6 +940,15 @@
                     <property name="text">
                      <string/>
                     </property>
+                    <property name="foreground">
+                     <brush brushstyle="SolidPattern">
+                      <color alpha="255">
+                       <red>0</red>
+                       <green>0</green>
+                       <blue>0</blue>
+                      </color>
+                     </brush>
+                    </property>
                    </item>
                    <item row="5" column="0">
                     <property name="text">
@@ -1080,6 +1096,11 @@
                    <row>
                     <property name="text">
                      <string>rcomm</string>
+                    </property>
+                   </row>
+                   <row>
+                    <property name="text">
+                     <string>length</string>
                     </property>
                    </row>
                    <column>
@@ -1235,10 +1256,16 @@
               </item>
              </layout>
             </item>
-            <item row="0" column="1">
-             <widget class="Line" name="line">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
+            <item row="1" column="0">
+             <widget class="QLabel" name="label_21">
+              <property name="font">
+               <font>
+                <pointsize>8</pointsize>
+                <italic>true</italic>
+               </font>
+              </property>
+              <property name="text">
+               <string>Remember to use ALL CAPS when entering values.</string>
               </property>
              </widget>
             </item>
@@ -1324,6 +1351,13 @@
                </widget>
               </item>
              </layout>
+            </item>
+            <item>
+             <widget class="Line" name="line_3">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+             </widget>
             </item>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_14">

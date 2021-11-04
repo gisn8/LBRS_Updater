@@ -21,12 +21,16 @@
  *                                                                         *
  ***************************************************************************/
 """
+import math
+
 from PyQt5.QtWidgets import QTableWidgetItem
+from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
-from qgis._core import QgsProject, QgsSpatialIndex, QgsFeature, QgsFeatureRequest, QgsGeometry, QgsPoint, QgsPointXY
+from qgis._core import QgsProject, QgsSpatialIndex, QgsFeature, QgsFeatureRequest, QgsGeometry, QgsPoint, QgsPointXY, \
+    QgsGeometryUtils, QgsCoordinateReferenceSystem, QgsCoordinateTransform
 from qgis.gui import QgsMapToolEmitPoint
 from qgis.core import QgsMapLayerProxyModel
 
@@ -369,6 +373,19 @@ class LBRS_Updater:
         self.point = point
         # print(f"{x}, {y}")
 
+    def solve_angle(self, from_point, to_point):
+        # From https://qgis.org/pyqgis/3.2/core/Geometry/QgsGeometryUtils.html#qgis.core.QgsGeometryUtils.lineAngle
+        # .lineAngle results in radians and need converted with math.degrees.
+        # Angles are calculated clockwise from North.
+        # By default, labels are perpendicular to the angle, so correct with a-90 for our purposes.
+        # Note: Pad labels with 3 spaces on either side to get proper distance from point.
+        # We'll want to integrate this into a newly formatted address layer when we're ready.
+        a = QgsGeometryUtils.lineAngle(from_point.x(), from_point.y(),  to_point.x(), to_point.y())
+
+        angle = round(math.degrees(a), 3)
+
+        return angle
+
 
 
 
@@ -660,20 +677,23 @@ class LBRS_Updater:
     # WIP
     """
     -- Steps to add address by point. -- 
-    [x] layer validation (done beforehand)
-    [x] click the button
-    [x] get the previous tool
-    [x] switch to xy tool
-    [x] Cancel xy tool?
-    [ ] override selected road tool
-    [ ] convert PointXY values to DD and layer.prj units
-    [ ] set coordinate labels
-    [ ] seek nearest road segment feature
-    [ ] activate address and road tables
-    [ ] use road data to fill in address data table
-    [ ] calculate housenum and absside
+    [X] layer validation (done beforehand)
+    [X] click the button
+    [X] get the previous tool
+    [X] switch to xy tool
+    [X] Cancel xy tool?
+    [X] override selected road tool
+    [X] convert PointXY values to DD and layer.prj units
+    [X] set coordinate labels
+    [X] seek nearest road segment feature
+    [X] activate address and road tables
+    [X] use road data to fill in address data table
+    [X] calculate housenum and absside
+    [X] Add cboBox to table cell? For struc_type
     [ ] begin edit of address layer
     [ ] add feature to address layer
+    [ ] Function and connect Clear button on AddAddress form
+    [ ] Function and connect Commit button on AddAddress form
     """
 
     def start_xy_tool(self, btn):
@@ -693,15 +713,21 @@ class LBRS_Updater:
         if btn == 'PlaceAddressPoint':
             self.xy_tool.canvasClicked.connect(self.manage_address_attributes)
         if btn == 'OverrideSelectedRoad':
-            self.xy_tool.canvasClicked.connect(self.get_context_attributes)
+            self.xy_tool.canvasClicked.connect(self.solve_attributes)
         self.canvas.setMapTool(self.xy_tool)
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def manage_address_attributes(self):
         self.dockwidget.lbl_AddAddress_X.setText(f"{round(self.x, 3)}")
         self.dockwidget.lbl_AddAddress_Y.setText(f"{round(self.y, 3)}")
+        coords = self.convert_xy(point_layer=self.get_layer('addresses'))
+        lat, long = coords['lat'], coords['long']
+        self.dockwidget.lbl_AddAddress_Lat.setText(f"{round(lat,6)}")
+        self.dockwidget.lbl_AddAddress_Long.setText(f"{round(long,6)}")
+
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.setEnabled(True)
-        self.get_context_attributes()
+
+        self.solve_attributes()
     
     def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix=''):
         lsn = ''
@@ -717,7 +743,7 @@ class LBRS_Updater:
 
         return lsn
 
-    def get_context_attributes(self):
+    def solve_attributes(self):
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
@@ -727,39 +753,39 @@ class LBRS_Updater:
         road_feature = road_feature_data['road_feature']
         context = road_feature_data['context']
         m_dist = context['m_dist']
-        side_of_line = context['side_of_line']
+        side_t = context['side_of_line']
+        length = road_feature.geometry().length()
 
-        st_lsn = self.build_lsn(housenum='',
-                                st_prefix=road_feature[f"{side_of_line}prefix"] or road_feature['st_prefix'] or '',
-                                st_name=road_feature[f"{side_of_line}name"] or road_feature['st_name'] or '',
-                                st_type=road_feature[f"{side_of_line}type"] or road_feature['st_type'] or '',
-                                st_suffix=road_feature[f"{side_of_line}suffix"] or road_feature['st_suffix'] or '')
+        angle = self.solve_angle(context['nearest_point_on_line_obj'], self.point)
+        label_angle = round(angle - 90, 3)
+        print(f"angle: {angle}")
+        print(f"label_angle: {label_angle}")
 
-        address_values = {
-            "segid": str(int(road_feature['segid'])),
-            "housenum": '',
-            "unitnum": '',
-            "struc_type": '',
-            "poi_name": '',
-            "st_lsn": st_lsn,
-            "absside": '',
-            "muni": '',
-            "zipcode": '',
-            "comm": '',
-            "note": ''
-        }
-        enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
-        self.pop_result_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
+        if (angle > 45) and (angle <=135):
+            absside = 'E'
+        elif (angle > 135) and (angle <= 225):
+            absside = 'S'
+        elif (angle > 225) and (angle <=315):
+            absside = 'W'
+        else:
+            absside = 'N'
 
-        l_lsn = self.build_lsn(housenum='', 
-                               st_prefix=road_feature['lprefix'] or '', 
+        if side_t == 'l':
+            side_text = 'left'
+            side = 0
+        else:
+            side_text = 'right'
+            side = 1
+
+
+
+        l_lsn = self.build_lsn(st_prefix=road_feature['lprefix'] or '',
                                st_name=road_feature['lname'] or '',
-                               st_type=road_feature['ltype'] or '', 
+                               st_type=road_feature['ltype'] or '',
                                st_suffix=road_feature['lsuffix'] or '')
-        r_lsn = self.build_lsn(housenum='', 
-                               st_prefix=road_feature['rprefix'] or '', 
+        r_lsn = self.build_lsn(st_prefix=road_feature['rprefix'] or '',
                                st_name=road_feature['rname'] or '',
-                               st_type=road_feature['rtype'] or '', 
+                               st_type=road_feature['rtype'] or '',
                                st_suffix=road_feature['rsuffix'] or '')
 
         road_values = {
@@ -773,13 +799,105 @@ class LBRS_Updater:
             "rightfrom": road_feature['rightfrom'],
             "rightto": road_feature['rightto'],
             "r_lsn": r_lsn,
-            "rcomm": road_feature['rcomm']
+            "rcomm": road_feature['rcomm'],
+            "length": length
         }
         enabled_road_cells = []
         self.pop_result_values_table(self.dockwidget.tbl_AddAddress_RoadInfo, road_values, enabled_road_cells)
 
+        housenum = self.solve_housenum(from_=road_feature[f"{side_text}from"], to_=road_feature[f"{side_text}to"],
+                                       m_dist=m_dist, length=length)
+
+        st_lsn = self.build_lsn(st_prefix=road_feature[f"{side_t}prefix"] or road_feature['st_prefix'] or '',
+                                st_name=road_feature[f"{side_t}name"] or road_feature['st_name'] or '',
+                                st_type=road_feature[f"{side_t}type"] or road_feature['st_type'] or '',
+                                st_suffix=road_feature[f"{side_t}suffix"] or road_feature['st_suffix'] or '')
+
+        address_values = {
+            "segid": str(int(road_feature['segid'])),
+            "housenum": housenum,
+            "unitnum": '',
+            "struc_type": '',
+            "poi_name": '',
+            "st_lsn": st_lsn,
+            "absside": absside,
+            "muni": road_feature[f"{side_t}addmuni"] or '',
+            "zipcode": road_feature[f"{side_text}zip"],
+            "comm": road_feature[f"{side_t}comm"],
+            "note": '',
+            "side": side
+        }
+        enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
+        self.pop_result_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
+
+        cbo_struc_type = QtWidgets.QComboBox()
+        cbo_struc_type.addItems([
+            "1 - House",
+            "2 - Duplex",
+            "3 - Trailer",
+            "4 - Apartment (single unit)",
+            "5 - Secondary (barn, garage, etc. with address)",
+            "6 - Utility (gas, electric, cellular, etc.)",
+            "7 - Commercial",
+            "8 - Address with no visible structure",
+            "9 - Apartment (one entrance w/suffix range)",
+            "10 - Campground Lot",
+            "11 - Landmark (cemetery, park, etc.)",
+            "12 - Apartment (one entrance w/address range)",
+            # 13 not used
+            "14 - Points for Review"])
+        cbo_struc_type.setCurrentIndex(-1)
+        table = self.dockwidget.tbl_AddAddress_AddressInfo
+        row_count = table.rowCount()
+        for row in range(row_count):
+            row_name = table.verticalHeaderItem(row).text()
+            if row_name == 'struc_type':
+                table.setCellWidget(row, 0, cbo_struc_type)
+
+
+
         self.iface.mapCanvas().setMapTool(self.prev_tool)
-    
+
+    def build_address_values(self, road_feature):
+        address_values = {
+            "segid": str(int(road_feature['segid'])),
+            "housenum": housenum,
+            "unitnum": '',
+            "struc_type": '',
+            "poi_name": '',
+            "st_lsn": st_lsn,
+            "absside": absside,
+            "muni": road_feature[f"{side_t}addmuni"] or '',
+            "zipcode": road_feature[f"{side_text}zip"],
+            "comm": road_feature[f"{side_t}comm"],
+            "note": '',
+            "side": side
+        }
+
+    def solve_housenum(self, from_=0, to_=0, m_dist=0, length=0):
+        pct = m_dist / length
+
+        if to_ - from_ >= 0:
+            numsign = 1
+        else:
+            numsign = -1
+
+        min_ = min(from_, to_)
+        max_ = max(from_, to_)
+        range_ = max_ - min_
+        val_ = range_ * pct
+        floor_ = math.floor(from_ + (val_ * numsign))
+        ceil_ = math.ceil(from_ + (val_ * numsign))
+
+        if (from_ % 2) != (to_ % 2):
+            housenum = round(min_ + val_)
+        elif (from_ % 2) == (floor_ % 2):
+            housenum = floor_
+        else:
+            housenum = ceil_
+
+        return housenum
+
     def pop_result_values_table(self, table, values, enabled_cells):
         row_count = table.rowCount()
         for row in range(row_count):
@@ -821,8 +939,6 @@ class LBRS_Updater:
         context_hold = None
         for fid in fids:
             road_features = roads_layer.getFeatures(f"$id = {fid}")
-            road_feature = None
-            # No, feats[0] does not work.
             for road_feature in road_features:
                 context = self.get_nearest_road_segment_context(road_feature, point)
                 min_dist = context['min_dist']
@@ -832,7 +948,7 @@ class LBRS_Updater:
                     context_hold = context
 
         road_features = roads_layer.getFeatures(f"$id = {fid_hold}")
-        road_feature = None
+        road_feature = None  # Just to shut up PyCharm
         # No, feats[0] does not work.
         for road_feature in road_features:
             break
@@ -860,8 +976,9 @@ class LBRS_Updater:
         # Technically, it's the next vertex index, but easier to think of it this way.
         nearest_segment_of_line = segment_context[2]
 
-        # -1 = Left, 0 = On the line, 1 = Right
-        if segment_context[3] == -1:
+        # -1 = Left, 0 = On the line, 1 = Right;
+        # figure this will keep anything from breaking down if it's accidentally on the line.
+        if segment_context[3] <= 0:
             side_of_line = 'l'
         elif segment_context[3] == 1:
             side_of_line = 'r'
@@ -878,8 +995,25 @@ class LBRS_Updater:
         return {'min_dist': min_dist, 'nearest_point_on_line_obj': nearest_point_on_line_obj, 'm_dist': m_dist,
                 'nearest_segment_of_line': nearest_segment_of_line, 'side_of_line': side_of_line}
 
-
-    def convert_xy(self):
+    def convert_xy(self, point_layer=None, x=None, y=None):
         # Convert a given PointXY object and get location assignments for DD and map projection units
+        # Derived from https://youtu.be/3YXjYAdAyjo
 
-        return lat, long, x, y
+        if point_layer is None:
+            point_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
+        if (x is None) or (y is None):
+            x, y = self.point.x(), self.point.y()
+
+        # From layer crs
+        old_crs = point_layer.crs()
+
+        # To desired crs
+        new_crs = QgsCoordinateReferenceSystem(4326)
+
+        transformation = QgsCoordinateTransform(old_crs, new_crs, QgsProject.instance())
+        new_point = transformation.transform(QgsPointXY(x, y))
+
+        lat = new_point.y()
+        long = new_point.x()
+
+        return {"lat":lat, "long": long}
