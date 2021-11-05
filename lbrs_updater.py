@@ -233,7 +233,6 @@ class LBRS_Updater:
 
 
 
-
     # Tools
     def get_layer(self, layer_name):
         try:
@@ -255,7 +254,15 @@ class LBRS_Updater:
                 i = i * 0
             else:
                 i = i * 1
-        return i
+        j = 1
+        for field in fields:
+            field_index = layer.fields().indexFromName(field.upper())
+            if field_index == -1:
+                j = j * 0
+            else:
+                j = j * 1
+        if (i == 1) or (j == 1):
+            return 1
 
     def get_feature_values_list(self, layer, field_name, filter_=None, distinct=1):
         # Used to populate values in combo boxes
@@ -287,7 +294,7 @@ class LBRS_Updater:
         self.reset_result_displays()
 
         if filter_ is None:
-            filter_ = 'lsn is not null'
+            filter_ = '1=1'
         features = layer.getFeatures(filter_)
 
         table.setColumnCount(layer.fields().count())
@@ -319,8 +326,7 @@ class LBRS_Updater:
                     if field_name not in show_fields_list:
                         table.setColumnHidden(layer.fields().indexFromName(field_name), True)
 
-        # table.setHorizontalHeader.setSectionResizeMode(ResizeToContents) # Doesn't work
-        # table.setHorizontalHeader.sectionSizeFromContents() # Doesn't work either
+        table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
 
     def get_selected_row_cell(self, table, field_name):
         row = table.currentItem().row()
@@ -386,6 +392,28 @@ class LBRS_Updater:
 
         return angle
 
+    def convert_xy(self, point_layer=None, x=None, y=None):
+        # Convert a given PointXY object and get location assignments for DD and map projection units
+        # Derived from https://youtu.be/3YXjYAdAyjo
+
+        if point_layer is None:
+            point_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
+        if (x is None) or (y is None):
+            x, y = self.point.x(), self.point.y()
+
+        # From layer crs
+        old_crs = point_layer.crs()
+
+        # To desired crs
+        new_crs = QgsCoordinateReferenceSystem(4326)
+
+        transformation = QgsCoordinateTransform(old_crs, new_crs, QgsProject.instance())
+        new_point = transformation.transform(QgsPointXY(x, y))
+
+        lat = new_point.y()
+        long = new_point.x()
+
+        return {"lat":lat, "long": long}
 
 
 
@@ -412,7 +440,6 @@ class LBRS_Updater:
         # Page 2 - Add Address
         self.set_add_address_connections()
 
-
     def reset_form(self):
         # -- Variables --
         self.point = None
@@ -433,7 +460,6 @@ class LBRS_Updater:
 
         # -- Add Address --
         self.reset_add_address_form()
-
 
 
 
@@ -462,10 +488,10 @@ class LBRS_Updater:
 
     def activate_menu_tools(self):
         if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
-            a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(),['featureid', 'housenum',
+            a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(), ['featureid', 'housenum',
                                                                                         'unitnum', 'comment', 'side',
                                                                                         'absside', 'struc_type',
-                                                                                        'source', 'comment', 'x' , 'y'])
+                                                                                        'source', 'comment', 'x', 'y'])
             if a == 1:
                 r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), ['segid', 'roadtype', 'roadnumber',
                                                                                          'st_prefix', 'st_name', 'st_type', 'st_suffix',
@@ -529,6 +555,7 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(2)
 
 
+
     # Search Address page
     def set_search_address_connections(self):
         # Tab change
@@ -571,7 +598,7 @@ class LBRS_Updater:
         # get active address tab, build search parameters based on the active tab, and populate results
         self.dockwidget.lblError.setText('')
         query = ''
-        address_tab_index = self.dockwidget.tab_SearchAddress.currentIndex()
+        address_tab_index = self.dockwidget.tabs_SearchAddress.currentIndex()
 
         # Component Search
         if address_tab_index == 0:
@@ -634,7 +661,7 @@ class LBRS_Updater:
 
         if query != '':
             # print(query)
-            self.pop_tbl(self.dockwidget.mLyrCbo_Addresses, self.dockwidget.tbl_SearchAddress_Results,
+            self.pop_tbl(self.dockwidget.mLyrCbo_Addresses.currentLayer(), self.dockwidget.tbl_SearchAddress_Results,
                                     filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
         else:
             self.reset_result_displays()
@@ -651,11 +678,48 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(5)
 
 
-    #Add Address page
+
+    # Add Address page
+    #   Add By Point
+    def Add_Address_checklist():
+
+        #Add Address page
+        # Add Address by Point checklist
+        """
+        -- Steps to add address by point. --
+        [X] layer validation (done beforehand)
+        [X] click the button
+        [X] get the previous tool
+        [X] switch to xy tool
+        [X] Cancel xy tool?
+        [X] override selected road tool
+        [X] convert PointXY values to DD and layer.prj units
+        [X] set coordinate labels
+        [X] seek nearest road segment feature
+        [X] activate address and road tables
+        [X] use road data to fill in address data table
+        [X] calculate housenum and absside
+        [X] Add cboBox to table cell? For struc_type
+        [ ] begin edit of address layer
+        [ ] add feature to address layer
+        [ ] Function and connect Clear button on AddAddress form
+        [ ] Function and connect Commit button on AddAddress form
+        [ ] Make flexible for upper, lower, and mixed case field names
+
+        Considerations
+        Do we want to utilize ROW and snap to? Would require pointing to another reference layer... No.
+        Set in-town and out-of-town distances from road CL to snap address points to? No. Not unless we're overriding
+        for apartment entrances.
+        Assign address to specific building AND link to aud_outbuilding... Should attempt an automated method to link
+        together probably 75% of them, then tediously going through the other 25%.
+        """
+        pass
+
     def set_add_address_connections(self):
         self.dockwidget.btn_AddAddressByPoint_PlaceAddressPoint.clicked.connect(lambda: self.start_xy_tool('PlaceAddressPoint'))
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.clicked.connect(lambda: self.start_xy_tool('OverrideSelectedRoad'))
         self.dockwidget.btn_AddAddressByPoint_Cancel.clicked.connect(self.cancel_canvas_capture)
+        self.dockwidget.btn_AddAddressByPoint_Clear.clicked.connect(self.reset_add_address_form)
 
     def reset_add_address_form(self):
         # Clear tables
@@ -666,7 +730,8 @@ class LBRS_Updater:
             self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
 
         # De-activate tables
-
+        self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(False)
+        self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(False)
 
         # Reset coord labels
         self.dockwidget.lbl_AddAddress_Lat.setText('')
@@ -674,27 +739,11 @@ class LBRS_Updater:
         self.dockwidget.lbl_AddAddress_X.setText('')
         self.dockwidget.lbl_AddAddress_Y.setText('')
 
-    # WIP
-    """
-    -- Steps to add address by point. -- 
-    [X] layer validation (done beforehand)
-    [X] click the button
-    [X] get the previous tool
-    [X] switch to xy tool
-    [X] Cancel xy tool?
-    [X] override selected road tool
-    [X] convert PointXY values to DD and layer.prj units
-    [X] set coordinate labels
-    [X] seek nearest road segment feature
-    [X] activate address and road tables
-    [X] use road data to fill in address data table
-    [X] calculate housenum and absside
-    [X] Add cboBox to table cell? For struc_type
-    [ ] begin edit of address layer
-    [ ] add feature to address layer
-    [ ] Function and connect Clear button on AddAddress form
-    [ ] Function and connect Commit button on AddAddress form
-    """
+        # De-activate buttons
+        self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.setEnabled(False)
+        self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
+        self.dockwidget.btn_AddAddressByPoint_Clear.setEnabled(False)
+        self.dockwidget.btn_AddAddressByPoint_Commit.setEnabled(False)
 
     def start_xy_tool(self, btn):
         # Pycharm doesn't like creating a self.variable outside __init__. Tough! It works just fine!
@@ -726,22 +775,10 @@ class LBRS_Updater:
         self.dockwidget.lbl_AddAddress_Long.setText(f"{round(long,6)}")
 
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.setEnabled(True)
+        self.dockwidget.btn_AddAddressByPoint_Clear.setEnabled(True)
+        self.dockwidget.btn_AddAddressByPoint_Commit.setEnabled(True)
 
         self.solve_attributes()
-    
-    def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix=''):
-        lsn = ''
-        if housenum != '':
-            lsn = f"{housenum} "
-        if st_prefix != '':
-            lsn = f"{lsn}{st_prefix} "
-        lsn = f"{lsn}{st_name}"
-        if st_type != '':
-            lsn = f"{lsn} {st_type}"
-        if st_suffix != '':
-            lsn = f"{lsn} {st_suffix}"
-
-        return lsn
 
     def solve_attributes(self):
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
@@ -858,22 +895,6 @@ class LBRS_Updater:
 
         self.iface.mapCanvas().setMapTool(self.prev_tool)
 
-    def build_address_values(self, road_feature):
-        address_values = {
-            "segid": str(int(road_feature['segid'])),
-            "housenum": housenum,
-            "unitnum": '',
-            "struc_type": '',
-            "poi_name": '',
-            "st_lsn": st_lsn,
-            "absside": absside,
-            "muni": road_feature[f"{side_t}addmuni"] or '',
-            "zipcode": road_feature[f"{side_text}zip"],
-            "comm": road_feature[f"{side_t}comm"],
-            "note": '',
-            "side": side
-        }
-
     def solve_housenum(self, from_=0, to_=0, m_dist=0, length=0):
         pct = m_dist / length
 
@@ -898,6 +919,36 @@ class LBRS_Updater:
 
         return housenum
 
+    def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix=''):
+        lsn = ''
+        if housenum != '':
+            lsn = f"{housenum} "
+        if st_prefix != '':
+            lsn = f"{lsn}{st_prefix} "
+        lsn = f"{lsn}{st_name}"
+        if st_type != '':
+            lsn = f"{lsn} {st_type}"
+        if st_suffix != '':
+            lsn = f"{lsn} {st_suffix}"
+
+        return lsn
+
+    def build_address_values(self, road_feature):
+        address_values = {
+            "segid": str(int(road_feature['segid'])),
+            "housenum": housenum,
+            "unitnum": '',
+            "struc_type": '',
+            "poi_name": '',
+            "st_lsn": st_lsn,
+            "absside": absside,
+            "muni": road_feature[f"{side_t}addmuni"] or '',
+            "zipcode": road_feature[f"{side_text}zip"],
+            "comm": road_feature[f"{side_t}comm"],
+            "note": '',
+            "side": side
+        }
+
     def pop_result_values_table(self, table, values, enabled_cells):
         row_count = table.rowCount()
         for row in range(row_count):
@@ -910,13 +961,6 @@ class LBRS_Updater:
             item.setFlags(flags)
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
-
-    """def get_nearest_road(self):
-        # Get the current tool
-        self.prev_tool = self.canvas.mapTool()"""
-    
-    def cancel_canvas_capture(self):
-        self.iface.mapCanvas().setMapTool(self.prev_tool)
 
     def get_nearest_road_feature(self, point):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
@@ -995,25 +1039,11 @@ class LBRS_Updater:
         return {'min_dist': min_dist, 'nearest_point_on_line_obj': nearest_point_on_line_obj, 'm_dist': m_dist,
                 'nearest_segment_of_line': nearest_segment_of_line, 'side_of_line': side_of_line}
 
-    def convert_xy(self, point_layer=None, x=None, y=None):
-        # Convert a given PointXY object and get location assignments for DD and map projection units
-        # Derived from https://youtu.be/3YXjYAdAyjo
+    def cancel_canvas_capture(self):
+        self.iface.mapCanvas().setMapTool(self.prev_tool)
+        self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
-        if point_layer is None:
-            point_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
-        if (x is None) or (y is None):
-            x, y = self.point.x(), self.point.y()
+    #   Add By Distance
+    #   Add By Coordinate Entry
+    #   Add By Calculation
 
-        # From layer crs
-        old_crs = point_layer.crs()
-
-        # To desired crs
-        new_crs = QgsCoordinateReferenceSystem(4326)
-
-        transformation = QgsCoordinateTransform(old_crs, new_crs, QgsProject.instance())
-        new_point = transformation.transform(QgsPointXY(x, y))
-
-        lat = new_point.y()
-        long = new_point.x()
-
-        return {"lat":lat, "long": long}
