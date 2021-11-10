@@ -374,8 +374,8 @@ class LBRS_Updater:
 
     def get_xy_from_canvas(self, point, button):
         # Report map coordinates from a canvas click
-        self.canvas_x = point.x()
-        self.canvas_y = point.y()
+        # self.canvas_x = point.x()
+        # self.canvas_y = point.y()
         self.canvas_point = point
         # print(f"{x}, {y}")
 
@@ -396,22 +396,27 @@ class LBRS_Updater:
         # Convert a given PointXY object and get location assignments for DD and map projection units
         # Derived from https://youtu.be/3YXjYAdAyjo
 
+        print(f"layer: {layer}, point:{point}, x:{x}, y:{y}, crs:{crs}")
+
         if layer is None:
             layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
 
         # From given, extract: point, point_crs, x, y
         if point is not None:
+            print('point is not none')
             x, y = point.x(), point.y()
         elif (x is not None) and (y is not None):
+            print('xy is not none')
             point = QgsPointXY(x, y)
-        else:
+        elif (point is None) or ((x is None) or (y is None)):
+            print('falling back to default')
             point = self.canvas_point
             x, y = point.x(), point.y()
 
         if crs is None:
             given_crs = QgsProject.instance().crs()
         else:
-            given_crs = QgsCoordinateReferenceSystem(4326)
+            given_crs = QgsCoordinateReferenceSystem(crs)
 
         # Layer crs
         layer_crs = layer.crs()
@@ -433,6 +438,65 @@ class LBRS_Updater:
             "dd_point": dd_point, "lat": lat, "long": long}
 
         print(outputs)
+        return outputs
+
+    def get_crs_val_from_layer(self, layer):
+        crs_val = int(layer.crs().authid().replace('EPSG:', ''))
+        return crs_val
+
+    def convert_xy_2(self, point=None, x=None, y=None, from_crs_val=None, to_crs_val=None):
+        # Convert a given PointXY object and get location assignments for DD and map projection units
+        # Derived from https://youtu.be/3YXjYAdAyjo
+
+        print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_val:{from_crs_val} to_crs_val:{to_crs_val}")
+
+        # Prepare needed variables with given variables
+        if point is not None:
+            print('point is not none')
+            x, y = point.x(), point.y()
+        elif (x is not None) and (y is not None):
+            print('xy is not none')
+            point = QgsPointXY(x, y)
+        elif (point is None) or ((x is None) or (y is None)):
+            print('falling back to default')
+            point = self.canvas_point
+            x, y = point.x(), point.y()
+
+        if from_crs_val is None:
+            # Default is canvas crs
+            from_crs = QgsProject.instance().crs()
+            from_crs_val = int(from_crs.authid().replace('EPSG:', ''))
+        else:
+            from_crs = QgsCoordinateReferenceSystem(from_crs_val)
+
+        if to_crs_val is None:
+            # default is address layer crs
+            layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
+            to_crs = layer.crs()
+            to_crs_val = int(to_crs.authid().replace('EPSG:', ''))
+        else:
+            to_crs = QgsCoordinateReferenceSystem(to_crs_val)
+
+        # Convert to to_crs
+        to_crs_transformation = QgsCoordinateTransform(from_crs, to_crs, QgsProject.instance())
+        new_point = to_crs_transformation.transform(QgsPointXY(x, y))
+        new_x = new_point.x()
+        new_y = new_point.y()
+
+        # Convert to DD crs
+        dd_crs = QgsCoordinateReferenceSystem(4326)
+        dd_transformation = QgsCoordinateTransform(from_crs, dd_crs, QgsProject.instance())
+        dd_point = dd_transformation.transform(QgsPointXY(x, y))
+        lat = dd_point.y()
+        long = dd_point.x()
+
+        outputs = {
+            "given_point": point, "given_x": x, "given_y": y, "given_crs_val": from_crs_val,
+            "new_point": new_point, "new_x": new_x, "new_y": new_y, "new_crs_val": to_crs_val,
+            "dd_point": dd_point, "lat": lat, "long": long
+        }
+
+        print(f"OUTPUTS: {outputs}")
         return outputs
 
 
@@ -533,11 +597,12 @@ class LBRS_Updater:
                 self.dockwidget.lblError.setText('Address layer invalid')
 
     def load_initial_data(self):
-        self.dockwidget.cbo_SearchAddress_st_name.addItem('')
-        self.dockwidget.cbo_SearchAddress_comm.addItem('')
-
         address_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
         roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
+
+        # Search for Address
+        self.dockwidget.cbo_SearchAddress_st_name.addItem('')
+        self.dockwidget.cbo_SearchAddress_comm.addItem('')
 
         self.dockwidget.cbo_SearchAddress_st_prefix.addItems(
             self.get_feature_values_list(address_layer, field_name='st_prefix'))
@@ -556,6 +621,12 @@ class LBRS_Updater:
 
         self.dockwidget.list_SearchAddress_roads_lsn.addItems(
             self.get_feature_values_list(roads_layer, field_name='lsn'))
+
+        # Add Address
+        if address_layer.crs() is not None:
+            self.dockwidget.rad_AddAddressByPoint_LayerCRS.setText(f"Address Layer CRS [{address_layer.crs().authid()}]")
+        else:
+            self.dockwidget.rad_AddAddressByPoint_LayerCRS.setText("Address Later CRS")
 
     def continue_from_menu(self):
         if self.dockwidget.cbo_Menu_FeatureType.currentText() == 'Address':
@@ -790,16 +861,57 @@ class LBRS_Updater:
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def manual_point_entry(self):
-        if self.dockwidget.rad_AddAddressPoint_DD.isChecked():
+        if self.dockwidget.rad_AddAddressByPoint_DD.isChecked():
+            layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
+            coords = self.convert_xy_2(
+                y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(),
+                x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
+                from_crs_val=4326,
+                to_crs_val=self.get_crs_val_from_layer(layer)
+            )
+            # coords = self.convert_xy(
+            #     layer=self.get_layer('roads'),
+            #     y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(),
+            #     x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
+            #     crs=4326)
+            self.manage_address_attributes(coords=coords)
+            self.dockwidget.stackedWidget_2.setCurrentIndex(0)
+        elif self.dockwidget.rad_AddAddressByPoint_LayerCRS.isChecked():
+            layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
+            coords = self.convert_xy_2(
+                y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(),
+                x=self.dockwidget.dblsp_AddAddressByPoint_X.value(),
+                from_crs_val=self.get_crs_val_from_layer(layer),
+                to_crs_val=self.get_crs_val_from_layer(layer)
+            )
+            # coords = self.convert_xy(
+            #     layer=self.get_layer('addresses'),
+            #     y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(),
+            #     x=self.dockwidget.dblsp_AddAddressByPoint_X.value(),
+            #     crs=crs)
+            self.manage_address_attributes(coords=coords)
+            self.dockwidget.stackedWidget_2.setCurrentIndex(0)
+        else:
             pass
 
-        if self.dockwidget.rad_AddAddressPoint_LayerCRS.isChecked():
-            pass
 
-    def manage_address_attributes(self):
+    def manage_address_attributes(self, point, btn, coords=None):  # the point and btn coming from the xy_tool come along for the ride.
         # coords = self.convert_xy()
-        coords = self.convert_xy(layer=self.get_layer('addresses'))
-        layer_x, layer_y, lat, long = coords['layer_x'], coords['layer_y'], coords['lat'], coords['long']
+        if coords is None:
+            print("Coords is None")
+            # coords = self.convert_xy(layer=self.get_layer('addresses'))
+            coords = self.convert_xy_2()
+
+        print(f"COORDS: {coords}")
+        layer_x = coords['new_x']
+        layer_y = coords['new_y']
+        lat = coords['lat']
+        long = coords['long']
+        point = coords['new_point']
+        point_crs_val = coords['new_crs_val']
+
+        print(point_crs_val)
+
         self.dockwidget.lbl_AddAddress_X.setText(f"{round(layer_x, 3)}")
         self.dockwidget.lbl_AddAddress_Y.setText(f"{round(layer_y, 3)}")
         self.dockwidget.lbl_AddAddress_Lat.setText(f"{round(lat,7)}")
@@ -809,22 +921,31 @@ class LBRS_Updater:
         self.dockwidget.btn_AddAddressByPoint_Clear.setEnabled(True)
         self.dockwidget.btn_AddAddressByPoint_Commit.setEnabled(True)
 
-        self.solve_attributes()
+        self.solve_attributes(point, point_crs_val)
 
-    def solve_attributes(self):
+    def solve_attributes(self, clicked_point, btn, point=None, point_crs_val=None):
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
         self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(True)
 
-        road_feature_data = self.get_nearest_road_feature(self.canvas_point)
+        print("solve_attributes")
+        if point is None:
+            point = self.canvas_point
+        if point_crs_val is None:
+            point_crs = QgsProject.instance().crs()
+            point_crs_val = int(point_crs.authid().replace('EPSG:', ''))
+        print(point)
+        road_feature_data = self.get_nearest_road_feature(point, point_crs_val)
         road_feature = road_feature_data['road_feature']
         context = road_feature_data['context']
+        reprojected_point = road_feature_data['reprojected_point']
         m_dist = context['m_dist']
         side_t = context['side_of_line']
         length = road_feature.geometry().length()
 
-        angle = self.solve_angle(context['nearest_point_on_line_obj'], self.canvas_point)
+        print(f"Point 1: {context['nearest_point_on_line']}, Point 2: {reprojected_point}")
+        angle = self.solve_angle(context['nearest_point_on_line'], reprojected_point)
         label_angle = round(angle - 90, 3)
         print(f"angle: {angle}")
         print(f"label_angle: {label_angle}")
@@ -922,9 +1043,10 @@ class LBRS_Updater:
             if row_name == 'struc_type':
                 table.setCellWidget(row, 0, cbo_struc_type)
 
-
-
-        self.iface.mapCanvas().setMapTool(self.prev_tool)
+        try:
+            self.iface.mapCanvas().setMapTool(self.prev_tool)
+        except:
+            pass
 
     def solve_housenum(self, from_=0, to_=0, m_dist=0, length=0):
         pct = m_dist / length
@@ -993,14 +1115,15 @@ class LBRS_Updater:
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
 
-    def get_nearest_road_feature(self, canvas_point):
+    def get_nearest_road_feature(self, point, point_crs_val=None):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
         # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
-        roads_layer = self.get_layer('roads')
+        roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer() or self.get_layer('roads')
         features = roads_layer.getFeatures()
 
-        point_conversion = self.convert_xy(layer=roads_layer, point=canvas_point)
-        point = point_conversion['layer_point']
+        # point_conversion = self.convert_xy(layer=roads_layer, point=point)
+        point_conversion = self.convert_xy_2(point, from_crs_val=point_crs_val, to_crs_val=self.get_crs_val_from_layer(roads_layer))
+        point = point_conversion['new_point']
 
         spatial_index = QgsSpatialIndex()  # create spatial index object
 
@@ -1028,7 +1151,7 @@ class LBRS_Updater:
         # No, feats[0] does not work.
         for road_feature in road_features:
             break
-        return {'road_feature': road_feature, 'context': context_hold}
+        return {'road_feature': road_feature, 'context': context_hold, 'reprojected_point': point}
 
     def get_nearest_road_segment_context(self, road_feature, point):
         # From https://qgis.org/api/classQgsGeometry.html#af949da066f8d1649a043cd320af1e7f7
@@ -1039,7 +1162,7 @@ class LBRS_Updater:
         min_dist = segment_context[0] ** (1/2)
 
         # Is a geometry object; should be able to work out the m_distance with this.
-        nearest_point_on_line_obj = segment_context[1]
+        nearest_point_on_line = segment_context[1]
 
         # It can figure out the closest point to the line without needing it exactly on the line.
         # point_geom = QgsGeometry.fromPointXY(point)
@@ -1061,14 +1184,14 @@ class LBRS_Updater:
 
         """
         print(f"min_dist: {min_dist}")
-        print(f"nearest_point_on_line_obj: {nearest_point_on_line_obj}")
+        print(f"nearest_point_on_line: {nearest_point_on_line}")
         print(f"m_dist: {m_dist}")
         print(f"nearest_segment_of_line: {nearest_segment_of_line}")
         print(f"side_of_line: {side_of_line}")
         """
 
         # Then x = get_nearest_road_segment_context('variable_name')
-        return {'min_dist': min_dist, 'nearest_point_on_line_obj': nearest_point_on_line_obj, 'm_dist': m_dist,
+        return {'min_dist': min_dist, 'nearest_point_on_line': nearest_point_on_line, 'm_dist': m_dist,
                 'nearest_segment_of_line': nearest_segment_of_line, 'side_of_line': side_of_line}
 
     def cancel_canvas_capture(self):
