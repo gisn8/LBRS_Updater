@@ -352,7 +352,6 @@ class LBRS_Updater:
 
         query = f"gid = {self.get_selected_row_cell(self.dockwidget.tbl_SearchAddress_Results, 'gid')}"
         # print(query)
-        canvas = self.iface.mapCanvas()
 
         # Hold any selected features to give back after the function
         held_ids = [f.id() for f in layer.selectedFeatures()]
@@ -362,7 +361,8 @@ class LBRS_Updater:
         ids = [i.id() for i in features]
         # print(len(ids))
         layer.selectByIds(ids)
-        canvas.zoomToSelected(layer)
+        self.canvas.zoomToSelected(layer)
+        self.canvas.flashFeatureIds(ids)
 
         # clear zooming selection and re-select original selected features
         layer.removeSelection()
@@ -370,23 +370,28 @@ class LBRS_Updater:
 
         # Will also shake the canvas into not showing the zoomed feature as selected if it wasn't to begin with.
         # if scale != None:
-        canvas.zoomScale(600)
+        self.canvas.zoomScale(600)
 
     def get_xy_from_canvas(self, point, button):
         # Report map coordinates from a canvas click
         # self.canvas_x = point.x()
         # self.canvas_y = point.y()
-        self.canvas_point = point
+        # self.canvas_point = point
+        # canvas_ppoint = {"point": point, "x": point.x(), "y": point.y(), "crs": QgsProject.instance().crs(),
+        #                       "crs_id": QgsProject.instance().crs().authid()}
+        canvas_ppoint = self.create_ppoint(point=point, crs=QgsProject.instance().crs())
+        self.canvas_spoint = self.convert_ppoint(canvas_ppoint, to_crs_id=4326)
+
         # print(f"{x}, {y}")
 
-    def solve_angle(self, from_point, to_point):
+    def solve_angle(self, from_ppoint, to_ppoint):
         # From https://qgis.org/pyqgis/3.2/core/Geometry/QgsGeometryUtils.html#qgis.core.QgsGeometryUtils.lineAngle
         # .lineAngle results in radians and need converted with math.degrees.
         # Angles are calculated clockwise from North.
         # By default, labels are perpendicular to the angle, so correct with a-90 for our purposes.
         # Note: Pad labels with 3 spaces on either side to get proper distance from point.
         # We'll want to integrate this into a newly formatted address layer when we're ready.
-        a = QgsGeometryUtils.lineAngle(from_point.x(), from_point.y(),  to_point.x(), to_point.y())
+        a = QgsGeometryUtils.lineAngle(from_ppoint["x"], from_ppoint["y"],  to_ppoint["x"], to_ppoint["y"])
 
         angle = round(math.degrees(a), 3)
 
@@ -440,15 +445,15 @@ class LBRS_Updater:
         print(outputs)
         return outputs
 
-    def get_crs_val_from_layer(self, layer):
-        crs_val = int(layer.crs().authid().replace('EPSG:', ''))
-        return crs_val
+    def get_crs_id_from_layer(self, layer):
+        crs_id = int(layer.crs().authid().replace('EPSG:', ''))
+        return crs_id
 
-    def convert_xy_2(self, point=None, x=None, y=None, from_crs_val=None, to_crs_val=None):
+    def convert_xy_2(self, point=None, x=None, y=None, from_crs_id=None, to_crs_id=None):
         # Convert a given PointXY object and get location assignments for DD and map projection units
         # Derived from https://youtu.be/3YXjYAdAyjo
 
-        print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_val:{from_crs_val} to_crs_val:{to_crs_val}")
+        print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_id:{from_crs_id} to_crs_id:{to_crs_id}")
 
         # Prepare needed variables with given variables
         if point is not None:
@@ -462,20 +467,20 @@ class LBRS_Updater:
             point = self.canvas_point
             x, y = point.x(), point.y()
 
-        if from_crs_val is None:
+        if from_crs_id is None:
             # Default is canvas crs
             from_crs = QgsProject.instance().crs()
-            from_crs_val = int(from_crs.authid().replace('EPSG:', ''))
+            from_crs_id = int(from_crs.authid().replace('EPSG:', ''))
         else:
-            from_crs = QgsCoordinateReferenceSystem(from_crs_val)
+            from_crs = QgsCoordinateReferenceSystem(from_crs_id)
 
-        if to_crs_val is None:
+        if to_crs_id is None:
             # default is address layer crs
             layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
             to_crs = layer.crs()
-            to_crs_val = int(to_crs.authid().replace('EPSG:', ''))
+            to_crs_id = int(to_crs.authid().replace('EPSG:', ''))
         else:
-            to_crs = QgsCoordinateReferenceSystem(to_crs_val)
+            to_crs = QgsCoordinateReferenceSystem(to_crs_id)
 
         # Convert to to_crs
         to_crs_transformation = QgsCoordinateTransform(from_crs, to_crs, QgsProject.instance())
@@ -491,14 +496,69 @@ class LBRS_Updater:
         long = dd_point.x()
 
         outputs = {
-            "given_point": point, "given_x": x, "given_y": y, "given_crs_val": from_crs_val,
-            "new_point": new_point, "new_x": new_x, "new_y": new_y, "new_crs_val": to_crs_val,
+            "given_point": point, "given_x": x, "given_y": y, "given_crs_id": from_crs_id,
+            "new_point": new_point, "new_x": new_x, "new_y": new_y, "new_crs_id": to_crs_id,
             "dd_point": dd_point, "lat": lat, "long": long
         }
 
         print(f"OUTPUTS: {outputs}")
         return outputs
 
+    def create_ppoint(self, point=None, x=None, y=None, crs=None, crs_id=None):
+        # ppoints are a means to keep the point and it's projection together; previous iterations were getting hard to 
+        # keep track of.
+
+        if (point is None) and (x is not None) and (y is not None):
+            point = QgsPointXY(x, y)
+        if (point is not None) and ((x is None) or (y is None)):
+            x = point.x()
+            y = point.y()
+
+        if (crs is None) and (crs_id is not None):
+            crs = QgsCoordinateReferenceSystem(crs_id)
+        if (crs is not None) and (crs_id is None):
+            crs_id = int(crs.authid().replace('EPSG:', ''))
+
+        ppoint = {"point": point, "x": x, "y": y, "crs": crs, "crs_id": crs_id}
+
+        return ppoint
+
+    def convert_ppoint(self, ppoint, to_crs_id=None):
+        # Convert a given PointXY object and get location assignments for DD and map projection units
+        # Derived from https://youtu.be/3YXjYAdAyjo
+
+        point, x, y, from_crs, from_crs_id = ppoint["point"], ppoint["x"], ppoint["y"], ppoint["crs"], ppoint["crs_id"]
+
+        print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_id:{from_crs_id}, to_crs_id:{to_crs_id}")
+
+        if to_crs_id is None:
+            # default is address layer crs
+            to_crs = self.address_layer.crs()
+            to_crs_id = int(to_crs.authid().replace('EPSG:', ''))
+        else:
+            to_crs = QgsCoordinateReferenceSystem(to_crs_id)
+
+        # Convert to to_crs
+        to_crs_transformation = QgsCoordinateTransform(from_crs, to_crs, QgsProject.instance())
+        new_point = to_crs_transformation.transform(QgsPointXY(x, y))
+        new_x = new_point.x()
+        new_y = new_point.y()
+
+        output = {"point": new_point, "x": new_x, "y": new_y, "crs": to_crs, "crs_id": to_crs_id}
+
+        print(f"OUTPUTS: {output}")
+        return output
+
+    def set_layers(self, submitted=0):
+        if submitted == 0:
+            self.address_layer = self.get_layer('addresses') or None
+            self.road_layer = self.get_layer('roads') or None
+        else:
+            self.address_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
+            self.road_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
+
+        if (self.address_layer is None) or (self.road_layer is None):
+            self.dockwidget.lblError.setText('Missing valid address and road layers')
 
 
     # Dockwidget
@@ -507,6 +567,7 @@ class LBRS_Updater:
         self.reset_layer_cbos()
         self.reset_form()
         self.limit_layer_cbo_types()
+        self.set_layers()
 
         # For dev
         self.dockwidget.stackedWidget.setCurrentIndex(2)
@@ -526,7 +587,7 @@ class LBRS_Updater:
 
     def reset_form(self):
         # -- Variables --
-        self.canvas_point = None
+        self.canvas_spoint = None
 
         # -- Dockwidget --
 
@@ -544,7 +605,6 @@ class LBRS_Updater:
 
         # -- Add Address --
         self.reset_add_address_form()
-
 
 
     # Menu page
@@ -570,7 +630,10 @@ class LBRS_Updater:
         self.dockwidget.cbo_Menu_Tool.setCurrentIndex(0)
         self.dockwidget.cbo_Menu_FeatureType.setCurrentIndex(0)
 
+
+
     def activate_menu_tools(self):
+        a, r = 0, 0
         if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
             a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(), ['featureid', 'housenum',
                                                                                         'unitnum', 'comment', 'side',
@@ -589,42 +652,42 @@ class LBRS_Updater:
                     self.load_initial_data()
                     self.dockwidget.lblError.setText('')
                     self.dockwidget.grpTools.setEnabled(True)
+                    
                 else:
                     self.dockwidget.grpTools.setEnabled(False)
                     self.dockwidget.lblError.setText('Road layer invalid')
             else:
                 self.dockwidget.grpTools.setEnabled(False)
                 self.dockwidget.lblError.setText('Address layer invalid')
+                
+        self.set_layers(submitted=a*r)
 
     def load_initial_data(self):
-        address_layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
-        roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
-
         # Search for Address
         self.dockwidget.cbo_SearchAddress_st_name.addItem('')
         self.dockwidget.cbo_SearchAddress_comm.addItem('')
 
         self.dockwidget.cbo_SearchAddress_st_prefix.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_prefix'))
+            self.get_feature_values_list(self.address_layer, field_name='st_prefix'))
         self.dockwidget.cbo_SearchAddress_st_name.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_name'))
+            self.get_feature_values_list(self.address_layer, field_name='st_name'))
         self.dockwidget.cbo_SearchAddress_st_type.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_type'))
+            self.get_feature_values_list(self.address_layer, field_name='st_type'))
         self.dockwidget.cbo_SearchAddress_st_suffix.addItems(
-            self.get_feature_values_list(address_layer, field_name='st_suffix'))
+            self.get_feature_values_list(self.address_layer, field_name='st_suffix'))
         self.dockwidget.cbo_SearchAddress_comm.addItems(
-            self.get_feature_values_list(address_layer, field_name='comm'))
+            self.get_feature_values_list(self.address_layer, field_name='comm'))
 
         self.dockwidget.cbo_SearchAddress_lsn.addItem('')
         self.dockwidget.cbo_SearchAddress_lsn.addItems(
-            self.get_feature_values_list(address_layer, field_name='lsn'))
+            self.get_feature_values_list(self.address_layer, field_name='lsn'))
 
         self.dockwidget.list_SearchAddress_roads_lsn.addItems(
-            self.get_feature_values_list(roads_layer, field_name='lsn'))
+            self.get_feature_values_list(self.road_layer, field_name='lsn'))
 
         # Add Address
-        if address_layer.crs() is not None:
-            self.dockwidget.rad_AddAddressByPoint_LayerCRS.setText(f"Address Layer CRS [{address_layer.crs().authid()}]")
+        if self.address_layer.crs() is not None:
+            self.dockwidget.rad_AddAddressByPoint_LayerCRS.setText(f"Address Layer CRS [{self.address_layer.crs().authid()}]")
         else:
             self.dockwidget.rad_AddAddressByPoint_LayerCRS.setText("Address Later CRS")
 
@@ -646,7 +709,6 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(2)
 
 
-
     # Search Address page
     def set_search_address_connections(self):
         # Tab change
@@ -657,7 +719,7 @@ class LBRS_Updater:
         self.dockwidget.btn_SearchAddress_Clear.clicked.connect(lambda: self.reset_address_search_form())
         # Zoom
         self.dockwidget.btn_SearchAddress_Zoom.clicked.connect(
-            lambda: self.zoom_to_feature(self.dockwidget.mLyrCbo_Addresses.currentLayer()))
+            lambda: self.zoom_to_feature(self.address_layer))
         # Continue
         self.dockwidget.btn_SearchAddress_Continue.clicked.connect(lambda: self.continue_from_address_search())
 
@@ -752,7 +814,7 @@ class LBRS_Updater:
 
         if query != '':
             # print(query)
-            self.pop_tbl(self.dockwidget.mLyrCbo_Addresses.currentLayer(), self.dockwidget.tbl_SearchAddress_Results,
+            self.pop_tbl(self.address_layer, self.dockwidget.tbl_SearchAddress_Results,
                                     filter_=f'{query}', show_fields_list=['comment', 'lsn', 'comm', 'datemodifi'])
         else:
             self.reset_result_displays()
@@ -767,7 +829,6 @@ class LBRS_Updater:
             self.dockwidget.stackedWidget.setCurrentIndex(4)
         if self.dockwidget.cbo_SearchAddress_Tool.currentText() == 'Retire':
             self.dockwidget.stackedWidget.setCurrentIndex(5)
-
 
 
     # Add Address page
@@ -840,77 +901,98 @@ class LBRS_Updater:
         self.dockwidget.btn_AddAddressByPoint_Commit.setEnabled(False)
 
     def start_xy_tool(self, btn):
+        # User clicks a button to launch capture point from canvas for either the address point or select the necessary 
+        # road. Once the point is captured, we use the button they launched with to determine what comes next.
+        
         # Pycharm doesn't like creating a self.variable outside __init__. Tough! It works just fine!
-        # Doing this just in case we have a point already assigned and decided we didn't want to override it.
-        if self.canvas_point == None:
-            self.canvas_x = 0
-            self.canvas_y = 0
+        
+        # # Doing this just in case we have a point already assigned and decided we didn't want to override it.
+        # if self.canvas_point == None:
+        #     self.canvas_x = 0
+        #     self.canvas_y = 0
 
-        # Get the current tool
+        # Store the current tool before launching. We'll revert to it once point is captured.
         self.prev_tool = self.canvas.mapTool()
 
         # Create the map tool using the canvas reference
         # A self. assignment was found necessary for the tool to work ¯\_(ツ)_/¯
         self.xy_tool = QgsMapToolEmitPoint(self.canvas)
-        self.xy_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine
+        self.xy_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine; shut up, PyCharm.
         if btn == 'PlacePointOnMap':
-            self.xy_tool.canvasClicked.connect(self.manage_address_attributes)
+            self.xy_tool.canvasClicked.connect(self.manage_address_coords)
         if btn == 'OverrideSelectedRoad':
             self.xy_tool.canvasClicked.connect(self.solve_attributes)
         self.canvas.setMapTool(self.xy_tool)
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def manual_point_entry(self):
+        # Create spoint using manually entered values from form then pass on.
+        address_spoint = None
         if self.dockwidget.rad_AddAddressByPoint_DD.isChecked():
-            layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
-            coords = self.convert_xy_2(
-                y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(),
-                x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
-                from_crs_val=4326,
-                to_crs_val=self.get_crs_val_from_layer(layer)
-            )
+            # coords = self.convert_xy_2(
+            #     y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(),
+            #     x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
+            #     from_crs_id=4326,
+            #     to_crs_id=self.get_crs_id_from_layer(layer)
+            # )
+
             # coords = self.convert_xy(
             #     layer=self.get_layer('roads'),
             #     y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(),
             #     x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
             #     crs=4326)
-            self.manage_address_attributes(coords=coords)
-            self.dockwidget.stackedWidget_2.setCurrentIndex(0)
+
+            address_spoint = self.create_ppoint(x=self.dockwidget.dblsp_AddAddressByPoint_Long.value(),
+                                        y=self.dockwidget.dblsp_AddAddressByPoint_Lat.value(), crs_id=4326)
+
         elif self.dockwidget.rad_AddAddressByPoint_LayerCRS.isChecked():
-            layer = self.dockwidget.mLyrCbo_Addresses.currentLayer() or self.get_layer('addresses')
-            coords = self.convert_xy_2(
-                y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(),
-                x=self.dockwidget.dblsp_AddAddressByPoint_X.value(),
-                from_crs_val=self.get_crs_val_from_layer(layer),
-                to_crs_val=self.get_crs_val_from_layer(layer)
-            )
+            # coords = self.convert_xy_2(
+            #     y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(),
+            #     x=self.dockwidget.dblsp_AddAddressByPoint_X.value(),
+            #     from_crs_id=self.get_crs_id_from_layer(layer),
+            #     to_crs_id=self.get_crs_id_from_layer(layer)
+            # )
             # coords = self.convert_xy(
             #     layer=self.get_layer('addresses'),
             #     y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(),
             #     x=self.dockwidget.dblsp_AddAddressByPoint_X.value(),
             #     crs=crs)
-            self.manage_address_attributes(coords=coords)
-            self.dockwidget.stackedWidget_2.setCurrentIndex(0)
-        else:
-            pass
+            ppoint = self.create_ppoint(x=self.dockwidget.dblsp_AddAddressByPoint_X.value(), y=self.dockwidget.dblsp_AddAddressByPoint_Y.value(), crs_id=self.get_crs_id_from_layer(self.address_layer))
+            address_spoint = self.convert_ppoint(ppoint=ppoint, to_crs_id=4326)
 
+        self.manage_address_coords(clicked_point=None, mouse_button=None, address_spoint=address_spoint)
+        # self.manage_address_coords(coords=coords)
+        self.dockwidget.stackedWidget_2.setCurrentIndex(0)
 
-    def manage_address_attributes(self, point, btn, coords=None):  # the point and btn coming from the xy_tool come along for the ride.
+    def manage_address_coords(self, clicked_point, mouse_button, coords=None, address_spoint=None):  # the point and btn coming from the xy_tool come along for the ride.
+        # Either by canvas capture or manual entry, by now, we should now have an spoint ("standard (4326) point").
+
         # coords = self.convert_xy()
-        if coords is None:
-            print("Coords is None")
-            # coords = self.convert_xy(layer=self.get_layer('addresses'))
-            coords = self.convert_xy_2()
 
-        print(f"COORDS: {coords}")
-        layer_x = coords['new_x']
-        layer_y = coords['new_y']
-        lat = coords['lat']
-        long = coords['long']
-        point = coords['new_point']
-        point_crs_val = coords['new_crs_val']
+        # if coords is None:
+        #     print("Coords is None")
+        #     # coords = self.convert_xy(layer=self.get_layer('addresses'))
+        #     coords = self.convert_xy_2()
 
-        print(point_crs_val)
+        # print(f"COORDS: {coords}")
+        # layer_x = coords['new_x']
+        # layer_y = coords['new_y']
+        # lat = coords['lat']
+        # long = coords['long']
+        # point = coords['new_point']
+        # point_crs_id = coords['new_crs_id']
+        #
+        # print(point_crs_id)
+
+        if address_spoint is None:
+            address_spoint = self.canvas_spoint
+
+        address_ppoint = self.convert_ppoint(ppoint=address_spoint, to_crs_id=self.get_crs_id_from_layer(self.address_layer))
+
+        layer_x = address_ppoint['x']
+        layer_y = address_ppoint['y']
+        lat = address_spoint['y']
+        long = address_spoint['x']
 
         self.dockwidget.lbl_AddAddress_X.setText(f"{round(layer_x, 3)}")
         self.dockwidget.lbl_AddAddress_Y.setText(f"{round(layer_y, 3)}")
@@ -921,22 +1003,26 @@ class LBRS_Updater:
         self.dockwidget.btn_AddAddressByPoint_Clear.setEnabled(True)
         self.dockwidget.btn_AddAddressByPoint_Commit.setEnabled(True)
 
-        self.solve_attributes(point, point_crs_val)
+        # self.solve_attributes(point, point_crs_id)
+        self.solve_attributes(clicked_point, mouse_button, spoint=address_spoint)
 
-    def solve_attributes(self, clicked_point, btn, point=None, point_crs_val=None):
+    def solve_attributes(self, clicked_point, mouse_button, point=None, point_crs_id=None, spoint=None):
+        # Get the spoint (could be from address placement, could be from override) and get the desired road segment data
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
         self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(True)
 
         print("solve_attributes")
-        if point is None:
-            point = self.canvas_point
-        if point_crs_val is None:
-            point_crs = QgsProject.instance().crs()
-            point_crs_val = int(point_crs.authid().replace('EPSG:', ''))
-        print(point)
-        road_feature_data = self.get_nearest_road_feature(point, point_crs_val)
+        if spoint is None:
+            spoint = self.canvas_spoint
+        # if point_crs_id is None:
+        #     point_crs = QgsProject.instance().crs()
+        #     point_crs_id = int(point_crs.authid().replace('EPSG:', ''))
+        # print(point)
+        # road_feature_data = self.get_nearest_road_feature(point, point_crs_id, ppoint=address_spoint)
+        road_feature_data = self.get_nearest_road_feature(ppoint=spoint)
+
         road_feature = road_feature_data['road_feature']
         context = road_feature_data['context']
         reprojected_point = road_feature_data['reprojected_point']
@@ -944,8 +1030,15 @@ class LBRS_Updater:
         side_t = context['side_of_line']
         length = road_feature.geometry().length()
 
-        print(f"Point 1: {context['nearest_point_on_line']}, Point 2: {reprojected_point}")
-        angle = self.solve_angle(context['nearest_point_on_line'], reprojected_point)
+        road_ppoint = self.create_ppoint(point=context['nearest_point_on_line'],
+                                         crs_id=self.get_crs_id_from_layer(self.road_layer))
+        road_appoint = self.convert_ppoint(ppoint=road_ppoint, to_crs_id=self.get_crs_id_from_layer(self.address_layer))
+        appoint = self.convert_ppoint(ppoint=spoint, to_crs_id=self.get_crs_id_from_layer(self.address_layer))
+
+        print(f"""Point 1: {road_appoint}
+        Point 2: {appoint}""")
+        angle = self.solve_angle(from_ppoint=road_appoint, to_ppoint=appoint)
+
         label_angle = round(angle - 90, 3)
         print(f"angle: {angle}")
         print(f"label_angle: {label_angle}")
@@ -1115,15 +1208,15 @@ class LBRS_Updater:
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
 
-    def get_nearest_road_feature(self, point, point_crs_val=None):
+    def get_nearest_road_feature(self, ppoint, point=None, point_crs_id=None):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
-        # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
-        roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer() or self.get_layer('roads')
-        features = roads_layer.getFeatures()
+        # roads_layer = self.dockwidget.mLyrCbo_Roads.currentLayer() or self.get_layer('roads')
+        features = self.road_layer.getFeatures()
 
         # point_conversion = self.convert_xy(layer=roads_layer, point=point)
-        point_conversion = self.convert_xy_2(point, from_crs_val=point_crs_val, to_crs_val=self.get_crs_val_from_layer(roads_layer))
-        point = point_conversion['new_point']
+        # point_conversion = self.convert_xy_2(point, from_crs_id=point_crs_id, to_crs_id=self.get_crs_id_from_layer(self.road_layer))
+        # point = point_conversion['new_point']
+        point = self.convert_ppoint(ppoint=ppoint, to_crs_id=self.get_crs_id_from_layer(self.road_layer))['point']
 
         spatial_index = QgsSpatialIndex()  # create spatial index object
 
@@ -1137,7 +1230,7 @@ class LBRS_Updater:
         fid_hold = 0
         context_hold = None
         for fid in fids:
-            road_features = roads_layer.getFeatures(f"$id = {fid}")
+            road_features = self.road_layer.getFeatures(f"$id = {fid}")
             for road_feature in road_features:
                 context = self.get_nearest_road_segment_context(road_feature, point)
                 min_dist = context['min_dist']
@@ -1146,7 +1239,7 @@ class LBRS_Updater:
                     fid_hold = fid
                     context_hold = context
 
-        road_features = roads_layer.getFeatures(f"$id = {fid_hold}")
+        road_features = self.road_layer.getFeatures(f"$id = {fid_hold}")
         road_feature = None  # Just to shut up PyCharm
         # No, feats[0] does not work.
         for road_feature in road_features:
