@@ -822,6 +822,10 @@ class LBRS_Updater:
         # User clicks a button to launch capture point from canvas for either the address point or select the necessary 
         # road. Once the point is captured, we use the button they launched with to determine what comes next.
 
+        layer = self.address_layer
+        if layer.isEditable():
+            layer.rollBack()
+
         # Create the map tool using the canvas reference
         # A self. assignment was found necessary for the tool to work ¯\_(ツ)_/¯. Pycharm doesn't like creating
         #   a self.variable outside __init__, but it works just fine!
@@ -984,14 +988,39 @@ class LBRS_Updater:
             "zipcode": road_feature[f"{side_text}zip"],
             "comm": road_feature[f"{side_t}comm"],
             "note": '',
-            "side": side
+            "side": side,
+            "x": str(float(self.dockwidget.lbl_AddAddress_X.text())),
+            "y": str(float(self.dockwidget.lbl_AddAddress_Y.text()))
         }
         enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
         self.pop_feature_input_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
 
+        layer = self.address_layer
+        layer.startEditing()
+        feat = QgsFeature(layer.fields())
+        for key in address_values:
+            print(f"{key}: {address_values[key]}")
+            try:
+                feat.setAttribute(layer.fields().indexFromName(key), address_values[key])
+            except:
+                pass
+        for key in road_values:
+            print(f"{key}: {road_values[key]}")
+            try:
+                feat.setAttribute(layer.fields().indexFromName(key), road_values[key])
+            except:
+                pass
+
+        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
+                                                            round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
+        layer.addFeature(feat)
+        self.canvas.refreshAllLayers()
+        self.canvas.refresh()
+
+
         self.cbo_struc_type.setCurrentIndex(-1)
 
-        self.iface.mapCanvas().unsetMapTool(self.xy_tool)
+        self.canvas.unsetMapTool(self.xy_tool)
 
     def get_nearest_road_feature(self, ppoint):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
