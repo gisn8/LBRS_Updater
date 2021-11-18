@@ -381,6 +381,7 @@ class LBRS_Updater:
 
     def solve_angle(self, from_ppoint, to_ppoint):
         # From https://qgis.org/pyqgis/3.2/core/Geometry/QgsGeometryUtils.html#qgis.core.QgsGeometryUtils.lineAngle
+        # Used for ABSSIDE value determination. DO NOT DELETE!
         # .lineAngle results in radians and need converted with math.degrees.
         # Angles are calculated clockwise from North.
         # By default, labels are perpendicular to the angle, so correct with a-90 for our purposes.
@@ -445,9 +446,6 @@ class LBRS_Updater:
 
     # Dockwidget
     def initialize(self):
-        # Required early self variables
-        self.prev_tool = None
-
         # Form prep
         self.set_connections()
         self.reset_layer_cbos()
@@ -506,8 +504,8 @@ class LBRS_Updater:
 
     # Menu page
     def set_menu_connections(self):
-        self.dockwidget.mLyrCbo_Addresses.currentTextChanged.connect(lambda: self.activate_menu_tools())
-        self.dockwidget.mLyrCbo_Roads.currentTextChanged.connect(lambda: self.activate_menu_tools())
+        self.dockwidget.mLyrCbo_Addresses.currentTextChanged.connect(lambda: self.validate_selected_layers())
+        self.dockwidget.mLyrCbo_Roads.currentTextChanged.connect(lambda: self.validate_selected_layers())
         self.dockwidget.btn_Menu_Continue.clicked.connect(lambda: self.continue_from_menu())
 
     def reset_layer_cbos(self):
@@ -527,19 +525,21 @@ class LBRS_Updater:
         self.dockwidget.cbo_Menu_Tool.setCurrentIndex(0)
         self.dockwidget.cbo_Menu_FeatureType.setCurrentIndex(0)
 
-    def activate_menu_tools(self):
+    def validate_selected_layers(self):
         a, r = 0, 0
-        if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
-            a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(), ['featureid', 'housenum',
-                                                                                        'unitnum', 'comment', 'side',
-                                                                                        'absside', 'struc_type',
-                                                                                        'source', 'comment', 'x', 'y'])
+
+        address_field_checklist = ['featureid', 'housenum', 'unitnum', 'comment', 'side', 'absside', 'struc_type',
+                                   'source', 'comment', 'x', 'y', 'segid']
+        road_field_checklist = ['segid', 'roadtype', 'roadnumber', 'st_prefix', 'st_name', 'st_type', 'st_suffix',
+                           'altprefix', 'altname', 'alttype', 'altsuffix', 'fieldnote', 'leftfrom', 'rightto']
+
+        if ((self.dockwidget.mLyrCbo_Addresses.currentIndex() != -1) and
+                (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
+            a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(), address_field_checklist)
             if a == 1:
-                r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), ['segid', 'roadtype', 'roadnumber',
-                                                                                         'st_prefix', 'st_name', 'st_type', 'st_suffix',
-                                                                                         'altprefix', 'altname', 'alttype', 'altsuffix',
-                                                                                         'fieldnote', 'leftfrom', 'rightto'])
+                r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), road_field_checklist)
                 if r == 1:
+                    # Have to turn off/on the lbl in order for the message to appear while processing the layers
                     self.dockwidget.lblError.setVisible(False)
                     self.dockwidget.lblError.setText('Loading data...')
                     self.dockwidget.lblError.setVisible(True)
@@ -737,7 +737,7 @@ class LBRS_Updater:
         [X] click the button
         [X] get the previous tool
         [X] switch to xy tool
-        [X] Cancel xy tool?
+        [X] Cancel xy tool
         [X] override selected road tool
         [X] convert PointXY values to DD and layer.prj units
         [X] set coordinate labels
@@ -748,7 +748,7 @@ class LBRS_Updater:
         [X] Add cboBox to table cell? For struc_type
         [ ] begin edit of address layer
         [ ] add feature to address layer
-        [ ] Function and connect Clear button on AddAddress form
+        [X] Function and connect Clear button on AddAddress form
         [ ] Function and connect Commit button on AddAddress form
         [ ] Make flexible for upper, lower, and mixed case field names
 
@@ -777,6 +777,30 @@ class LBRS_Updater:
             item = QTableWidgetItem(str(row * 0))
             item.setText('')
             self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
+
+        self.cbo_struc_type = QtWidgets.QComboBox()
+        self.cbo_struc_type.addItems([
+            "1 - House",
+            "2 - Duplex",
+            "3 - Trailer",
+            "4 - Apartment (single unit)",
+            "5 - Secondary (barn, garage, etc. with address)",
+            "6 - Utility (gas, electric, cellular, etc.)",
+            "7 - Commercial",
+            "8 - Address with no visible structure",
+            "9 - Apartment (one entrance w/suffix range)",
+            "10 - Campground Lot",
+            "11 - Landmark (cemetery, park, etc.)",
+            "12 - Apartment (one entrance w/address range)",
+            # 13 not used
+            "14 - Points for Review"])
+        self.cbo_struc_type.setCurrentIndex(-1)
+        table = self.dockwidget.tbl_AddAddress_AddressInfo
+        row_count = table.rowCount()
+        for row in range(row_count):
+            row_name = table.verticalHeaderItem(row).text()
+            if row_name == 'struc_type':
+                table.setCellWidget(row, 0, self.cbo_struc_type)
 
         # De-activate tables
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(False)
@@ -808,20 +832,11 @@ class LBRS_Updater:
         if btn == 'OverrideSelectedRoad':
             self.xy_tool.canvasClicked.connect(self.solve_attributes)
 
-        # Store the current tool before launching. We'll revert to it once point is captured.
-        if self.prev_tool is None:
-            self.prev_tool = self.canvas.mapTool()
-
-        # Used to check prev_tool persistence and comparison, but still a useful snippet.
-        # self.xy_tool.setToolName(btn)
-        # print(self.prev_tool.toolName())
-        # print(self.xy_tool.toolName())
-
         self.canvas.setMapTool(self.xy_tool)
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(True)
 
     def cancel_canvas_capture(self):
-        self.iface.mapCanvas().setMapTool(self.prev_tool)
+        self.iface.mapCanvas().unsetMapTool(self.xy_tool)
         self.dockwidget.btn_AddAddressByPoint_Cancel.setEnabled(False)
 
     def manual_point_entry(self):
@@ -874,7 +889,7 @@ class LBRS_Updater:
         self.dockwidget.tbl_AddAddress_AddressInfo.setEnabled(True)
         self.dockwidget.tbl_AddAddress_RoadInfo.setEnabled(True)
 
-        print("solve_attributes")
+        # print("solve_attributes")
         if spoint is None:
             spoint = self.canvas_spoint
 
@@ -896,13 +911,14 @@ class LBRS_Updater:
         # address projected address point
         appoint = self.convert_ppoint(ppoint=spoint, to_crs_id=self.get_crs_id_from_layer(self.address_layer))
 
-        print(f"""Point 1: {road_appoint}
-        Point 2: {appoint}""")
+        # print(f"""Point 1: {road_appoint}
+        # Point 2: {appoint}""")
         angle = self.solve_angle(from_ppoint=road_appoint, to_ppoint=appoint)
 
-        label_angle = round(angle - 90, 3)
-        print(f"angle: {angle}")
-        print(f"label_angle: {label_angle}")
+        # Label angle now handled in database, but snippet still useful.
+        # label_angle = round(angle - 90, 3)
+        # print(f"angle: {angle}")
+        # print(f"label_angle: {label_angle}")
 
         if (angle > 45) and (angle <=135):
             absside = 'E'
@@ -973,34 +989,9 @@ class LBRS_Updater:
         enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
         self.pop_feature_input_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
 
-        cbo_struc_type = QtWidgets.QComboBox()
-        cbo_struc_type.addItems([
-            "1 - House",
-            "2 - Duplex",
-            "3 - Trailer",
-            "4 - Apartment (single unit)",
-            "5 - Secondary (barn, garage, etc. with address)",
-            "6 - Utility (gas, electric, cellular, etc.)",
-            "7 - Commercial",
-            "8 - Address with no visible structure",
-            "9 - Apartment (one entrance w/suffix range)",
-            "10 - Campground Lot",
-            "11 - Landmark (cemetery, park, etc.)",
-            "12 - Apartment (one entrance w/address range)",
-            # 13 not used
-            "14 - Points for Review"])
-        cbo_struc_type.setCurrentIndex(-1)
-        table = self.dockwidget.tbl_AddAddress_AddressInfo
-        row_count = table.rowCount()
-        for row in range(row_count):
-            row_name = table.verticalHeaderItem(row).text()
-            if row_name == 'struc_type':
-                table.setCellWidget(row, 0, cbo_struc_type)
+        self.cbo_struc_type.setCurrentIndex(-1)
 
-        try:
-            self.iface.mapCanvas().setMapTool(self.prev_tool)
-        except:
-            pass
+        self.iface.mapCanvas().unsetMapTool(self.xy_tool)
 
     def get_nearest_road_feature(self, ppoint):
         # From https://gis.stackexchange.com/questions/59173/finding-nearest-line-to-point-in-qgis
@@ -1143,6 +1134,13 @@ class LBRS_Updater:
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
 
+    def add_pending_feature_to_layer(self, layer, attributes):
+        # Gets the layer and attributes and creates the new pending feature in the layer.
+        pass
+
+    def commit_feature_to_layer(self):
+        #
+        pass
 
     #   Add Address page -- Add By Distance
     #   Add Address page -- Add By Calculation
