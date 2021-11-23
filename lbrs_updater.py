@@ -776,6 +776,10 @@ class LBRS_Updater:
         pass
 
     def set_add_address_connections(self):
+        # Checks if housenum was left blank. If so, issues message box and defaults to -9.
+        table = self.dockwidget.tbl_AddAddress_AddressInfo
+        table.cellChanged.connect(lambda: self.check_housenum_val(table.currentRow()))
+
         self.dockwidget.btn_AddAddressByPoint_PlacePointOnMap.clicked.connect(lambda: self.start_xy_tool('PlacePointOnMap'))
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.clicked.connect(lambda: self.start_xy_tool('OverrideSelectedRoad'))
         self.dockwidget.btn_AddAddressByPoint_EnterManually.clicked.connect(lambda: self.dockwidget.stackedWidget_2.setCurrentIndex(1))
@@ -802,6 +806,7 @@ class LBRS_Updater:
             item.setText('')
             self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
 
+        self.tbl_ln_housenum = QtWidgets.QLineEdit()
         self.cbo_struc_type = QtWidgets.QComboBox()
 
         self.struc_values = {
@@ -1186,6 +1191,11 @@ class LBRS_Updater:
             item.setFlags(flags)
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
+
+    def check_housenum_val(self, row):
+        if (row == 1) and (self.dockwidget.tbl_AddAddress_AddressInfo.item(1, 0).text() == ''):
+            self.dockwidget.tbl_AddAddress_AddressInfo.item(1, 0).setText('-9')
+            self.msgbox(title='housenum left blank', text='<b>housenum</b> was left blank. Defaulting to -9.')
 
     def commit_feature_to_layer(self):
         # Grab the updated values and create the new point.
