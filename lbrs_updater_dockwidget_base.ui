@@ -394,6 +394,9 @@
                   <property name="text">
                    <string/>
                   </property>
+                  <property name="frame">
+                   <bool>true</bool>
+                  </property>
                  </widget>
                 </item>
                 <item>
@@ -1463,6 +1466,9 @@
                           <property name="enabled">
                            <bool>false</bool>
                           </property>
+                          <property name="frame">
+                           <bool>true</bool>
+                          </property>
                           <property name="buttonSymbols">
                            <enum>QAbstractSpinBox::NoButtons</enum>
                           </property>
@@ -2109,6 +2115,13 @@
          </size>
         </property>
        </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnEndSession">
+        <property name="text">
+         <string>End Session</string>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnReset">

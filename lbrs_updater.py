@@ -472,6 +472,7 @@ class LBRS_Updater:
     def set_connections(self):
         # All
         self.dockwidget.btnReset.clicked.connect(lambda: self.reset_form())
+        self.dockwidget.btnEndSession.clicked.connect(lambda: self.end_session())
 
         # Page 0 - Menu
         self.set_menu_connections()
@@ -503,7 +504,19 @@ class LBRS_Updater:
         # -- Add Address --
         self.reset_add_address_form()
 
+    def enable_edit_toolbars(self, enabled):
+        self.iface.advancedDigitizeToolBar().setEnabled(enabled)
+        self.iface.digitizeToolBar().setEnabled(enabled)
+        self.iface.shapeDigitizeToolBar().setEnabled(enabled)
 
+    def end_session(self):
+        self.reset_form()
+        self.dockwidget.grpTools.setEnabled(False)
+        self.dockwidget.mLyrCbo_Addresses.setCurrentIndex(-1)
+        self.dockwidget.mLyrCbo_Roads.setCurrentIndex(-1)
+        self.enable_edit_toolbars(True)
+
+    
     # Menu page
     def set_menu_connections(self):
         self.dockwidget.mLyrCbo_Addresses.currentTextChanged.connect(lambda: self.validate_selected_layers())
@@ -559,6 +572,7 @@ class LBRS_Updater:
                     self.load_initial_data()
                     self.dockwidget.lblError.setText('')
                     self.dockwidget.grpTools.setEnabled(True)
+                    self.enable_edit_toolbars(False)
                     
                 else:
                     self.dockwidget.grpTools.setEnabled(False)
@@ -1249,6 +1263,9 @@ class LBRS_Updater:
         for key in self.struc_values:
             if committing_values["struc_type"] == f"{key} - {self.struc_values[key]}":
                 committing_values["struc_type"] = key
+
+        feature = layer.getFeatures('id < 0')
+
 
 
         if layer.isEditable():
