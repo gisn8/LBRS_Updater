@@ -23,7 +23,7 @@
 """
 import math
 
-from PyQt5.QtWidgets import QTableWidgetItem, QComboBox
+from PyQt5.QtWidgets import QTableWidgetItem, QComboBox, QMessageBox
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
@@ -1218,6 +1218,7 @@ class LBRS_Updater:
         # Need to calculate lsn and struc_type AFTER (b/c of lsn) we get remaining values from matching segid road.
         if len(committing_values['struc_type']) == 0:
             self.dockwidget.lblError.setText('Please set a struc_type value!')
+            self.msgbox(title='struc_type required', text='Please set a <b>struc_type</b> value!')
             return
         else:
             self.dockwidget.lblError.setText('')
@@ -1270,3 +1271,34 @@ class LBRS_Updater:
     #   Add Address page -- Add By Distance
     #   Add Address page -- Add By Calculation
 
+    # MESSAGES TO USER
+    def msgbox(self, title=None, icon=None, text=None, info=None):
+        msg = QMessageBox()
+        if title:
+            msg.setWindowTitle(title)
+        if icon:
+            # Options: QMessageBox.noIcon (default), .Question, .Information, .Warning, .Critical
+            msg.setIcon(icon)
+        if text:
+            msg.setText(text)
+        if info:
+            msg.setInformativeText(info)
+        msg.setStandardButtons(QMessageBox.Ok)  # msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.exec_()
+
+    def msgbar(self, title=None, text=None, level=None, duration=5):
+        self.iface.messageBar().pushMessage(title, text, level=level, duration=duration)
+        # level options: Qgis.Info, Warning, Critical, Success
+
+    def qstatusbarmsg(self, msg):
+        self.iface.mainWindow().statusBar().showMessage(f"{msg}")
+        pass
+
+    # Produces message with error code
+    def errorcatch(self, e, lineno='0'):
+        template = "Exception: {0}\nLine: {lineno}\nArguments: {1!r}"
+        message = template.format(type(e).__name__, e.args)
+        # print(message)
+        error_msg = f"Exception: {type(e).__name__}\nLine: {lineno}\nArguments: {e.args}"
+        print(error_msg)
+        return error_msg
