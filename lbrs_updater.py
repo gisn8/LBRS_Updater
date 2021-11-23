@@ -23,7 +23,7 @@
 """
 import math
 
-from PyQt5.QtWidgets import QTableWidgetItem
+from PyQt5.QtWidgets import QTableWidgetItem, QComboBox
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
@@ -453,6 +453,8 @@ class LBRS_Updater:
         self.limit_layer_cbo_types()
         self.set_layers()
 
+        self.dockwidget.lblError.setText('Be sure edit sessions are closed on impacted layers.')
+
         # For dev
         self.dockwidget.stackedWidget.setCurrentIndex(2)
 
@@ -486,7 +488,7 @@ class LBRS_Updater:
 
         # -- Dockwidget --
 
-        # Set default and hide error warning
+        # Set default warning message to empty
         self.dockwidget.lblError.setText('')
 
         # Return to Menu
@@ -537,8 +539,18 @@ class LBRS_Updater:
                 (self.dockwidget.mLyrCbo_Roads.currentIndex() != -1)):
             a = self.check_for_fields(self.dockwidget.mLyrCbo_Addresses.currentLayer(), address_field_checklist)
             if a == 1:
+                layer = self.dockwidget.mLyrCbo_Addresses.currentLayer()
+
+                if layer.isEditable():
+                    # True/False if the dialog should offer Cancel or not. Here, we do not want edit sessions to be mixed.
+                    self.iface.vectorLayerTools().stopEditing(layer, False)
+
                 r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), road_field_checklist)
+
                 if r == 1:
+                    layer = self.dockwidget.mLyrCbo_Roads.currentLayer()
+                    if layer.isEditable():
+                        self.iface.vectorLayerTools().stopEditing(layer, False)
                     # Have to turn off/on the lbl in order for the message to appear while processing the layers
                     self.dockwidget.lblError.setVisible(False)
                     self.dockwidget.lblError.setText('Loading data...')
@@ -746,11 +758,13 @@ class LBRS_Updater:
         [X] use road data to fill in address data table
         [X] calculate housenum and absside
         [X] Add cboBox to table cell? For struc_type
-        [ ] begin edit of address layer
-        [ ] add feature to address layer
+        [X] begin edit of address layer
+        [X] add feature to address layer
         [X] Function and connect Clear button on AddAddress form
         [ ] Function and connect Commit button on AddAddress form
         [ ] Make flexible for upper, lower, and mixed case field names
+        [ ] By Distance form
+        [ ]
 
         Considerations
         Do we want to utilize ROW and snap to? Would require pointing to another reference layer... No.
@@ -764,36 +778,52 @@ class LBRS_Updater:
     def set_add_address_connections(self):
         self.dockwidget.btn_AddAddressByPoint_PlacePointOnMap.clicked.connect(lambda: self.start_xy_tool('PlacePointOnMap'))
         self.dockwidget.btn_AddAddressbyPoint_OverrideSelectedRoad.clicked.connect(lambda: self.start_xy_tool('OverrideSelectedRoad'))
-        self.dockwidget.btn_AddAddressByPoint_Cancel.clicked.connect(self.cancel_canvas_capture)
-        self.dockwidget.btn_AddAddressByPoint_Clear.clicked.connect(self.reset_add_address_form)
         self.dockwidget.btn_AddAddressByPoint_EnterManually.clicked.connect(lambda: self.dockwidget.stackedWidget_2.setCurrentIndex(1))
+        self.dockwidget.btn_AddAddressByPoint_Cancel.clicked.connect(self.cancel_canvas_capture)
+
+        # Manual Entry page buttons
         self.dockwidget.btn_AddAddressbyPoint_GoBack.clicked.connect(lambda: self.dockwidget.stackedWidget_2.setCurrentIndex(0))
         self.dockwidget.btn_AddAddressByPoint_AcceptManualInput.clicked.connect(self.manual_point_entry)
 
+        self.dockwidget.btn_AddAddressByPoint_Clear.clicked.connect(self.reset_add_address_form)
+        self.dockwidget.btn_AddAddressByPoint_Commit.clicked.connect(self.commit_feature_to_layer)
+
     def reset_add_address_form(self):
-        # Clear tables
+        # Reset tables
         row_count = self.dockwidget.tbl_AddAddress_AddressInfo.rowCount()
+        for row in range(row_count):
+            item = QTableWidgetItem(str(row * 0))
+            item.setText('')
+            self.dockwidget.tbl_AddAddress_AddressInfo.setItem(row, 0, item)
+
+        row_count = self.dockwidget.tbl_AddAddress_RoadInfo.rowCount()
         for row in range(row_count):
             item = QTableWidgetItem(str(row * 0))
             item.setText('')
             self.dockwidget.tbl_AddAddress_RoadInfo.setItem(row, 0, item)
 
         self.cbo_struc_type = QtWidgets.QComboBox()
-        self.cbo_struc_type.addItems([
-            "1 - House",
-            "2 - Duplex",
-            "3 - Trailer",
-            "4 - Apartment (single unit)",
-            "5 - Secondary (barn, garage, etc. with address)",
-            "6 - Utility (gas, electric, cellular, etc.)",
-            "7 - Commercial",
-            "8 - Address with no visible structure",
-            "9 - Apartment (one entrance w/suffix range)",
-            "10 - Campground Lot",
-            "11 - Landmark (cemetery, park, etc.)",
-            "12 - Apartment (one entrance w/address range)",
+
+        self.struc_values = {
+            1: "House",
+            2: "Duplex",
+            3: "Trailer",
+            4: "Apartment (single unit)",
+            5: "Secondary (barn, garage, etc. with address)",
+            6: "Utility (gas, electric, cellular, etc.)",
+            7: "Commercial",
+            8: "Address with no visible structure",
+            9: "Apartment (one entrance w/suffix range)",
+            10: "Campground Lot",
+            11: "Landmark (cemetery, park, etc.)",
+            12: "Apartment (one entrance w/address range)",
             # 13 not used
-            "14 - Points for Review"])
+            14: "Points for Review"
+        }
+
+        for key in self.struc_values:
+            self.cbo_struc_type.addItem(f"{key} - {self.struc_values[key]}")
+
         self.cbo_struc_type.setCurrentIndex(-1)
         table = self.dockwidget.tbl_AddAddress_AddressInfo
         row_count = table.rowCount()
@@ -899,7 +929,8 @@ class LBRS_Updater:
 
         road_feature_data = self.get_nearest_road_feature(ppoint=spoint)
 
-        road_feature = road_feature_data['road_feature']
+        self.road_feature = road_feature_data['road_feature']
+        road_feature = self.road_feature
         context = road_feature_data['context']
 
         m_dist = context['m_dist']
@@ -940,8 +971,6 @@ class LBRS_Updater:
             side_text = 'right'
             side = 1
 
-
-
         l_lsn = self.build_lsn(st_prefix=road_feature['lprefix'] or '',
                                st_name=road_feature['lname'] or '',
                                st_type=road_feature['ltype'] or '',
@@ -963,7 +992,7 @@ class LBRS_Updater:
             "rightto": road_feature['rightto'],
             "r_lsn": r_lsn,
             "rcomm": road_feature['rcomm'],
-            "length": length
+            "length": round(length, 3)
         }
         enabled_road_cells = []
         self.pop_feature_input_values_table(self.dockwidget.tbl_AddAddress_RoadInfo, road_values, enabled_road_cells)
@@ -995,20 +1024,23 @@ class LBRS_Updater:
         enabled_address_cells = ['housenum', 'unitnum', 'struc_type', 'poi_name', 'note']
         self.pop_feature_input_values_table(self.dockwidget.tbl_AddAddress_AddressInfo, address_values, enabled_address_cells)
 
+        # Even though it seems redundant to do this here and in self.commit_feature_to_layer, there are significant
+        # manipulations that need to happen before the final commit is actually made. Additionally, trying it here as is
+        # would add two points on top of one another unnoticeably.
         layer = self.address_layer
         layer.startEditing()
         feat = QgsFeature(layer.fields())
         for key in address_values:
-            print(f"{key}: {address_values[key]}")
+            # print(f"{key}: {address_values[key]}")
             try:
                 feat.setAttribute(layer.fields().indexFromName(key), address_values[key])
-            except:
+            except KeyError:
                 pass
         for key in road_values:
-            print(f"{key}: {road_values[key]}")
+            # print(f"{key}: {road_values[key]}")
             try:
                 feat.setAttribute(layer.fields().indexFromName(key), road_values[key])
-            except:
+            except KeyError:
                 pass
 
         feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
@@ -1120,35 +1152,27 @@ class LBRS_Updater:
 
         return housenum
 
-    def build_lsn(self, housenum='', st_prefix='', st_name='', st_type='', st_suffix=''):
+    def build_lsn(self, housenum='', unitnum='', st_prefix='', st_name='', st_type='', st_suffix=''):
         lsn = ''
-        if housenum != '':
+
+        if not st_name:
+            return st_name
+
+        if housenum and (housenum != ''):
             lsn = f"{housenum} "
-        if st_prefix != '':
+        if unitnum and (unitnum != ''):
+            lsn = f"{lsn}{unitnum} "
+        if st_prefix and (st_prefix != ''):
             lsn = f"{lsn}{st_prefix} "
+
         lsn = f"{lsn}{st_name}"
-        if st_type != '':
+
+        if st_type and (st_type != ''):
             lsn = f"{lsn} {st_type}"
-        if st_suffix != '':
+        if st_suffix and (st_suffix != ''):
             lsn = f"{lsn} {st_suffix}"
 
         return lsn
-
-    def build_address_values(self, road_feature):
-        address_values = {
-            "segid": str(int(road_feature['segid'])),
-            "housenum": housenum,
-            "unitnum": '',
-            "struc_type": '',
-            "poi_name": '',
-            "st_lsn": st_lsn,
-            "absside": absside,
-            "muni": road_feature[f"{side_t}addmuni"] or '',
-            "zipcode": road_feature[f"{side_text}zip"],
-            "comm": road_feature[f"{side_t}comm"],
-            "note": '',
-            "side": side
-        }
 
     def pop_feature_input_values_table(self, table, values, enabled_cells):
         row_count = table.rowCount()
@@ -1163,13 +1187,85 @@ class LBRS_Updater:
             item.setText(f"{values[row_name]}")
             table.setItem(row, 0, item)
 
-    def add_pending_feature_to_layer(self, layer, attributes):
-        # Gets the layer and attributes and creates the new pending feature in the layer.
-        pass
-
     def commit_feature_to_layer(self):
-        #
-        pass
+        # Grab the updated values and create the new point.
+        # Because the initial and final values will be different and a feature edit will have to go line by line of the
+        # dialog anyway, might as well rollback and re-enter the point with the given values.
+
+        layer = self.address_layer
+        field_names = [field.name() for field in layer.fields()]
+        committing_values = {}
+        for field in field_names:
+            # print(field)
+            try:
+                committing_values[field] = self.road_feature[field]
+            except:
+                pass
+
+        table = self.dockwidget.tbl_AddAddress_AddressInfo
+        row_count = table.rowCount()
+        for row in range(row_count):
+            row_name = table.verticalHeaderItem(row).text()
+            widget = table.cellWidget(row, 0)
+            item = table.item(row, 0)
+            if isinstance(widget, QComboBox):
+                current_value = widget.currentText()
+            else:
+                current_value = item.text()
+            print(f"{row_name}: {current_value}")
+            committing_values[row_name] = current_value
+
+        # Need to calculate lsn and struc_type AFTER (b/c of lsn) we get remaining values from matching segid road.
+        if len(committing_values['struc_type']) == 0:
+            self.dockwidget.lblError.setText('Please set a struc_type value!')
+            return
+        else:
+            self.dockwidget.lblError.setText('')
+            self.dockwidget.repaint()
+
+        committing_values['lsn'] = self.build_lsn(
+            housenum=committing_values["housenum"],
+            unitnum=committing_values["unitnum"],
+            st_name=self.road_feature["lsn"]
+        )
+
+        committing_values['alsn'] = self.build_lsn(
+            housenum=committing_values["housenum"],
+            unitnum=committing_values["unitnum"],
+            st_name=self.road_feature["alsn"]
+        )
+
+        for key in self.struc_values:
+            if committing_values["struc_type"] == f"{key} - {self.struc_values[key]}":
+                committing_values["struc_type"] = key
+
+
+        if layer.isEditable():
+            layer.rollBack()
+        layer.startEditing()
+        feat = QgsFeature(layer.fields())
+        for key in committing_values:
+            print(f"committing {key}: {committing_values[key]}")
+            try:
+                feat.setAttribute(layer.fields().indexFromName(key), committing_values[key])
+            except KeyError:
+                pass
+
+        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
+                                                            round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
+        layer.addFeature(feat)
+        self.canvas.refreshAllLayers()
+        self.canvas.refresh()
+        # This is just a stopgap in the case that Commit was accidentally clicked on.
+        # It pops up the Save/Discard dialog.
+        if layer.isEditable():
+            # True/False if the dialog should offer Cancel or not. This can give us the opportunity to modify values
+            # without having to start all over. Assigning a variable can show whether the dialog was carried out (Saved
+            # or Discarded)(True) or canceled (so continue editing)(False).
+            stopped_editing = self.iface.vectorLayerTools().stopEditing(layer, True)
+            if stopped_editing == True:
+                self.reset_add_address_form()
+
 
     #   Add Address page -- Add By Distance
     #   Add Address page -- Add By Calculation
