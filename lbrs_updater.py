@@ -422,7 +422,7 @@ class LBRS_Updater:
 
         point, x, y, from_crs, from_crs_id = ppoint["point"], ppoint["x"], ppoint["y"], ppoint["crs"], ppoint["crs_id"]
 
-        print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_id:{from_crs_id}, to_crs_id:{to_crs_id}")
+        # print(f"INTAKE: point:{point}, x:{x}, y:{y}, from_crs_id:{from_crs_id}, to_crs_id:{to_crs_id}")
 
         if to_crs_id is None:
             # default is address layer crs
@@ -439,7 +439,7 @@ class LBRS_Updater:
 
         output = {"point": new_point, "x": new_x, "y": new_y, "crs": to_crs, "crs_id": to_crs_id}
 
-        print(f"OUTPUTS: {output}")
+        # print(f"OUTPUTS: {output}")
         return output
 
 
@@ -516,7 +516,7 @@ class LBRS_Updater:
         self.dockwidget.mLyrCbo_Roads.setCurrentIndex(-1)
         self.enable_edit_toolbars(True)
 
-    
+
     # Menu page
     def set_menu_connections(self):
         self.dockwidget.mLyrCbo_Addresses.currentTextChanged.connect(lambda: self.validate_selected_layers())
@@ -556,7 +556,10 @@ class LBRS_Updater:
 
                 if layer.isEditable():
                     # True/False if the dialog should offer Cancel or not. Here, we do not want edit sessions to be mixed.
-                    self.iface.vectorLayerTools().stopEditing(layer, False)
+                    stopped_editing = self.iface.vectorLayerTools().stopEditing(layer, True)
+                    if stopped_editing == False:
+                        self.end_session()
+                        return
 
                 r = self.check_for_fields(self.dockwidget.mLyrCbo_Roads.currentLayer(), road_field_checklist)
 
@@ -807,6 +810,10 @@ class LBRS_Updater:
         self.dockwidget.btn_AddAddressByPoint_Commit.clicked.connect(self.commit_feature_to_layer)
 
     def reset_add_address_form(self):
+        layer = self.address_layer
+        if layer.isEditable():
+            layer.rollBack()
+
         # Reset tables
         row_count = self.dockwidget.tbl_AddAddress_AddressInfo.rowCount()
         for row in range(row_count):
@@ -1065,7 +1072,9 @@ class LBRS_Updater:
         feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
                                                             round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
         layer.addFeature(feat)
+
         self.canvas.refreshAllLayers()
+        layer.selectByExpression('$id < 0')
         self.canvas.refresh()
 
 
