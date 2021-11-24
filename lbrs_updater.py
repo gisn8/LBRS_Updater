@@ -23,6 +23,7 @@
 """
 import math
 
+from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QTableWidgetItem, QComboBox, QMessageBox
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
@@ -778,7 +779,7 @@ class LBRS_Updater:
         [X] begin edit of address layer
         [X] add feature to address layer
         [X] Function and connect Clear button on AddAddress form
-        [ ] Function and connect Commit button on AddAddress form
+        [X] Function and connect Commit button on AddAddress form
         [ ] Make flexible for upper, lower, and mixed case field names
         [ ] By Distance form
         [ ]
@@ -1077,7 +1078,6 @@ class LBRS_Updater:
         layer.selectByExpression('$id < 0')
         self.canvas.refresh()
 
-
         self.cbo_struc_type.setCurrentIndex(-1)
 
         self.canvas.unsetMapTool(self.xy_tool)
@@ -1248,7 +1248,7 @@ class LBRS_Updater:
             print(f"{row_name}: {current_value}")
             committing_values[row_name] = current_value
 
-        # Need to calculate lsn and struc_type AFTER (b/c of lsn) we get remaining values from matching segid road.
+        # Need to calculate lsn, struc_type, and datemodifi AFTER (b/c of lsn) we get remaining values from matching segid road.
         if len(committing_values['struc_type']) == 0:
             self.dockwidget.lblError.setText('Please set a struc_type value!')
             self.msgbox(title='struc_type required', text='Please set a <b>struc_type</b> value!')
@@ -1273,9 +1273,7 @@ class LBRS_Updater:
             if committing_values["struc_type"] == f"{key} - {self.struc_values[key]}":
                 committing_values["struc_type"] = key
 
-        feature = layer.getFeatures('id < 0')
-
-
+        committing_values["datemodifi"] = QDate.currentDate()
 
         if layer.isEditable():
             layer.rollBack()
@@ -1292,6 +1290,7 @@ class LBRS_Updater:
                                                             round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
         layer.addFeature(feat)
         self.canvas.refreshAllLayers()
+        layer.selectByExpression('$id < 0')
         self.canvas.refresh()
         # This is just a stopgap in the case that Commit was accidentally clicked on.
         # It pops up the Save/Discard dialog.
