@@ -1056,23 +1056,23 @@ class LBRS_Updater:
         # would add two points on top of one another unnoticeably.
         layer = self.address_layer
         layer.startEditing()
-        feat = QgsFeature(layer.fields())
+        feature = QgsFeature(layer.fields())
         for key in address_values:
             # print(f"{key}: {address_values[key]}")
             try:
-                feat.setAttribute(layer.fields().indexFromName(key), address_values[key])
+                feature.setAttribute(layer.fields().indexFromName(key), address_values[key])
             except KeyError:
                 pass
         for key in road_values:
             # print(f"{key}: {road_values[key]}")
             try:
-                feat.setAttribute(layer.fields().indexFromName(key), road_values[key])
+                feature.setAttribute(layer.fields().indexFromName(key), road_values[key])
             except KeyError:
                 pass
 
-        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
                                                             round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
-        layer.addFeature(feat)
+        layer.addFeature(feature)
 
         self.canvas.refreshAllLayers()
         layer.selectByExpression('$id < 0')
@@ -1278,17 +1278,17 @@ class LBRS_Updater:
         if layer.isEditable():
             layer.rollBack()
         layer.startEditing()
-        feat = QgsFeature(layer.fields())
+        feature = QgsFeature(layer.fields())
         for key in committing_values:
             print(f"committing {key}: {committing_values[key]}")
             try:
-                feat.setAttribute(layer.fields().indexFromName(key), committing_values[key])
+                feature.setAttribute(layer.fields().indexFromName(key), committing_values[key])
             except KeyError:
                 pass
 
-        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
                                                             round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
-        layer.addFeature(feat)
+        layer.addFeature(feature)
         self.canvas.refreshAllLayers()
         layer.selectByExpression('$id < 0')
         self.canvas.refresh()
@@ -1304,7 +1304,45 @@ class LBRS_Updater:
 
 
     #   Add Address page -- Add By Distance
+    """
+    Add Address by Distance features
+
+    Instead of adding distance from start or end of road, I'd like it to be distance from any point I like along a road.
+    
+    Establish if point is going up or down stream along road
+    Establish distance
+    Establish side of road
+    Establish offset from road
+    Click on road segment (this is especially important if we're distancing from an intersection).
+    Click point (we want to be able to snap onto a feature vertex to be able to measure from address point or 
+    intersection)
+    Find nearest point on road
+    mdistance along road to distance on the line. If too far, pop up.
+    Place point
+    Calculate attributes with option to override
+    """
+
     #   Add Address page -- Add By Calculation
+    """
+    Enter all the address information
+    get road features that:
+    st_prefix = ln_prefix
+    AND
+    st_name = ln_st_name
+    ...
+    AND
+    housenum < max(leftfrom,leftto,rightfrom,rightto)
+    AND
+    housenum > min(leftfrom,leftto,rightfrom,rightto)
+    AND
+    (lcomm = ln_jurisdiction or rcomm ...)
+    
+    If no matches found, popup
+    
+    Based on if the housenum is odd or even and which side it fits in range of. And offset possibly based on if it's in 
+    town or not.
+    """
+
 
     # MESSAGES TO USER
     def msgbox(self, title=None, icon=None, text=None, info=None):
