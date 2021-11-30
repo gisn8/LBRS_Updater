@@ -376,8 +376,9 @@ class LBRS_Updater:
         self.canvas.zoomScale(600)
 
     def get_xy_from_canvas(self, point, button):
-        # Report map coordinates from a canvas click
-        canvas_ppoint = self.create_ppoint(point=point, crs=QgsProject.instance().crs())
+        # Report map coordinates from a canvas click. Now with SNAP!
+        pt = self.xy_tool.snappoint(point)
+        canvas_ppoint = self.create_ppoint(point=pt, crs=QgsProject.instance().crs())
         self.canvas_spoint = self.convert_ppoint(canvas_ppoint, to_crs_id=4326)
 
         # print(f"{x}, {y}")
