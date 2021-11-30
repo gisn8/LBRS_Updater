@@ -23,7 +23,8 @@
 """
 import math
 
-from PyQt5.QtCore import QDate
+from PyQt5.QtCore import QDate, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QTableWidgetItem, QComboBox, QMessageBox
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
@@ -31,7 +32,8 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 # Initialize Qt resources from file resources.py
 from qgis._core import QgsProject, QgsSpatialIndex, QgsFeature, QgsFeatureRequest, QgsGeometry, QgsPoint, QgsPointXY, \
-    QgsGeometryUtils, QgsCoordinateReferenceSystem, QgsCoordinateTransform
+    QgsGeometryUtils, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsSettings
+from qgis._gui import QgsVertexMarker
 from qgis.gui import QgsMapToolEmitPoint
 from qgis.core import QgsMapLayerProxyModel
 
@@ -886,7 +888,8 @@ class LBRS_Updater:
         # Create the map tool using the canvas reference
         # A self. assignment was found necessary for the tool to work ¯\_(ツ)_/¯. Pycharm doesn't like creating
         #   a self.variable outside __init__, but it works just fine!
-        self.xy_tool = QgsMapToolEmitPoint(self.canvas)
+        # self.xy_tool = QgsMapToolEmitPoint(self.canvas)
+        self.xy_tool = CaptureCoordinate(self.canvas)
         self.xy_tool.canvasClicked.connect(self.get_xy_from_canvas)  # The connect works just fine; shut up, PyCharm.
         if btn == 'PlacePointOnMap':
             self.xy_tool.canvasClicked.connect(self.manage_address_coords)
@@ -1070,8 +1073,7 @@ class LBRS_Updater:
             except KeyError:
                 pass
 
-        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
-                                                            round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(appoint["x"], appoint["y"])))
         layer.addFeature(feature)
 
         self.canvas.refreshAllLayers()
@@ -1286,8 +1288,7 @@ class LBRS_Updater:
             except KeyError:
                 pass
 
-        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(round(float(self.dockwidget.lbl_AddAddress_X.text()), 3),
-                                                            round(float(self.dockwidget.lbl_AddAddress_Y.text()), 3))))
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(appoint["x"], appoint["y"])))
         layer.addFeature(feature)
         self.canvas.refreshAllLayers()
         layer.selectByExpression('$id < 0')
@@ -1375,3 +1376,70 @@ class LBRS_Updater:
         error_msg = f"Exception: {type(e).__name__}\nLine: {lineno}\nArguments: {e.args}"
         print(error_msg)
         return error_msg
+
+
+
+
+
+class CaptureCoordinate(QgsMapToolEmitPoint):
+    # Source: Lat Lon Tools QGIS plugin by C Hamilton for the NSA
+    # Homepage: https://github.com/NationalSecurityAgency/qgis-latlontools-plugin
+    # Code page: https://github.com/NationalSecurityAgency/qgis-latlontools-plugin/blob/master/captureCoordinate.py
+
+    '''Class to interact with the map canvas to capture the coordinate
+    when the mouse button is pressed.'''
+    capturePoint = pyqtSignal(QgsPointXY)
+    captureStopped = pyqtSignal()
+
+    def __init__(self, canvas):
+        QgsMapToolEmitPoint.__init__(self, canvas)
+        self.canvas = canvas
+        self.vertex = None
+
+    def activate(self):
+        '''When activated set the cursor to a crosshair.'''
+        self.canvas.setCursor(Qt.CrossCursor)
+        self.snapcolor = QgsSettings().value( "/qgis/digitizing/snap_color" , QColor( Qt.magenta ) )
+
+    def deactivate(self):
+        self.removeVertexMarker()
+        self.captureStopped.emit()
+
+    def snappoint(self, qpoint):
+        match = self.canvas.snappingUtils().snapToMap(qpoint)
+        if match.isValid():
+            if self.vertex is None:
+                self.vertex = QgsVertexMarker(self.canvas)
+                self.vertex.setIconSize(12)
+                self.vertex.setPenWidth(2)
+                self.vertex.setColor(self.snapcolor)
+                self.vertex.setIconType(QgsVertexMarker.ICON_BOX)
+            self.vertex.setCenter(match.point())
+            return (match.point()) # Returns QgsPointXY
+        else:
+            self.removeVertexMarker()
+            return self.toMapCoordinates(qpoint) # QPoint input, returns QgsPointXY
+
+    def canvasMoveEvent(self, event):
+        '''Capture the coordinate as the user moves the mouse over
+        the canvas.'''
+        self.snappoint(event.originalPixelPoint()) # input is QPoint
+
+    def canvasReleaseEvent(self, event):
+        '''Capture the coordinate when the mouse button has been released,
+        format it, and copy it to the clipboard. pt is QgsPointXY'''
+        pt = self.snappoint(event.originalPixelPoint())
+        self.removeVertexMarker()
+
+        try:
+            canvasCRS = self.canvas.mapSettings().destinationCrs()
+            transform = QgsCoordinateTransform(canvasCRS, epsg4326, QgsProject.instance())
+            pt4326 = transform.transform(pt.x(), pt.y())
+            self.capturePoint.emit(pt4326)
+        except Exception as e:
+            pass
+
+    def removeVertexMarker(self):
+        if self.vertex is not None:
+            self.canvas.scene().removeItem(self.vertex)
+            self.vertex = None
